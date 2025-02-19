@@ -14,19 +14,19 @@
 
 
 import tensorflow as tf
-# import tensorflow_datasets as tfds
+import tensorflow_datasets as tfds
 from translator import TranslatorRNN
 
 
-# dataset, info = tfds.load('wmt16_translate/ru-en', with_info=True, as_supervised=True)
+dataset, info = tfds.load('wmt16_translate/ru-en', with_info=True, as_supervised=True)
 
-# print(info)
+print(info)
 
-# train_dataset = dataset['train']
-# test_dataset = dataset['test']
+train_dataset = dataset['train']
+test_dataset = dataset['test']
 
 if __name__ == '__main__':
-    translator = TranslatorRNN(encoder_units=[5, 3, 4], decoder_units=[3, 4, 5], features_number=3)
+    translator = TranslatorRNN(encoder_units=[5, 3, 4], token_length=3, max_sequence_size=5, seed=7)
 
     print(translator(tf.constant([[[3, 3, 5], [3, 3, 5]], [[3, 3, 5], [3, 3, 5]]], dtype=tf.float32)))
 

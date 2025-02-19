@@ -67,6 +67,7 @@ class GRU(tf.Module):
     def __init__(self, units: int, token_length: int, use_bias: bool, return_sequences: bool, seed: int, name=None):
         super().__init__(name=name)
         self.units = units
+        self.token_length = token_length
         self.return_sequences = return_sequences
         self.cell = CellGRU(units, token_length, use_bias, seed)
 
@@ -91,15 +92,20 @@ class GRU(tf.Module):
             return h
 
     def __str__(self):
-        return f"GRU with {self.units} units."
+        if self.return_sequences:
+            output_shape = f"(None, sequence_length, {self.units})"
+        else:
+            output_shape = f"(None, {self.units})"
 
-class DeepGRU(tf.Module):
+        return f"GRU layer. Output shape - {output_shape}"
+
+class DeepEncoderGRU(tf.Module):
     """
     Realisation of multilayered RNN based on GRU.
 
-    Number of layers should be greater or equals then 2
+    Last layer returns context of sequence. It always have shape (batch_size, token_length * 2).
     """
-    def __init__(self, units_list: list, token_length: int, use_bias=True, return_sequnces=False, seed=None, name=None):
+    def __init__(self, units_list: list, token_length: int, use_bias=True, seed=None, name=None):
         super().__init__(name)
         
         # First layer has input shape (batch_size, seq_len, token_length).
@@ -113,7 +119,7 @@ class DeepGRU(tf.Module):
             ),
         ]
 
-        # Another layers have input shape (batch_size, seq_len, units_prev_layer).
+        # Another user specified layers have input shape (batch_size, seq_len, units_prev_layer).
         for i in range(1, len(units_list) - 1):
             self.deep_model.append(GRU(
                 units=units_list[i],
@@ -123,14 +129,14 @@ class DeepGRU(tf.Module):
                 seed=seed,
             ))
 
-        # Last layer can return sequnces or not return sequnces.
+        # Last layer can not return sequences.
         self.deep_model.append(GRU(
-                units=units_list[i],
-                token_length=units_list[i - 1],
-                use_bias=use_bias,
-                return_sequences=return_sequnces,
-                seed=seed,
-            ))
+            units=units_list[-1],
+            token_length=units_list[-2],
+            use_bias=use_bias,
+            return_sequences=False,
+            seed=seed,
+        ))
 
     def __call__(self, x):
         h = x
@@ -141,7 +147,7 @@ class DeepGRU(tf.Module):
         return h
     
     def __str__(self):
-        model_str = f"Multilayer RNN with {len(self.deep_model)} layers:"
+        model_str = f"Multilayer RNN with {len(self.deep_model)} layers (last layer added natively):"
 
         for sub_model in self.deep_model:
             model_str += f"\n\t\t\t{sub_model}"

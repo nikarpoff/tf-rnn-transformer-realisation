@@ -14,29 +14,41 @@
 
 import tensorflow as tf
 
-from gru import DeepGRU
+from gru import DeepEncoderGRU
+from dense import Dense
 from lstm import DecoderLSTM
 from exception import InvalidInputException
-   
+
 
 class TranslatorRNN(tf.Module):
     """
     Translation model based on RNN
     """
-    def __init__(self, encoder_units: list, decoder_units: list, token_length: int, learning_rate=0.001,
-                 regularization_strength=0., use_bias=True, seed=None, name=None):
+    def __init__(self, encoder_units: list, token_length: int, max_sequence_size: int,
+                learning_rate=0.001, use_bias=True, seed=None, name=None):
         super().__init__(name=name)
 
         # Initialize encoder. It returns ht that can be used for decoder.
-        self.encoder = DeepGRU(encoder_units, token_length, use_bias=use_bias, return_sequences=False, seed=seed)
+        self.encoder = DeepEncoderGRU(encoder_units, token_length, use_bias=use_bias, seed=seed)
+
+        # Initialize dense layer to predict s0 from encoder ht output.
+        self.s0_dense = Dense(units=encoder_units[-1], input_length=encoder_units[-1], use_bias=use_bias, seed=seed)
+        
+        # Initialize decoder based on LSTM. Decoder units number is encoder's last layer units number.
+        self.decoder = DecoderLSTM(input_length=encoder_units[-1], output_token_length=token_length,
+                                   max_sequence_size=max_sequence_size, use_bias=use_bias, seed=seed)
 
     def __call__(self, x):
         # Input Data should be 3-dimensional.
         if x.shape.ndims != 3:
             raise InvalidInputException(x.shape.ndims)
 
-        return self.encoder(x)
+        ht = self.encoder(x)
+        
+        c_0 = ht
+        s_0 = self.s0_dense(ht)
+
+        return self.decoder(s_0, c_0)
 
     def __str__(self):
-        # return f"Simple Translator RNN\n\tEncoder: {self.encoder}\n\tDecoder: {self.decoder}"
-        return f"Simple Translator RNN\n\tEncoder: {self.encoder}"
+        return f"Simple Translator RNN\n\tEncoder: {self.encoder}\n\tDense: {self.s0_dense}\n\tDecoder: {self.decoder}"            
