@@ -25,7 +25,7 @@ class TranslatorRNN(tf.Module):
     Translation model based on RNN
     """
     def __init__(self, encoder_units: list, token_length: int, max_sequence_size: int,
-                learning_rate=0.001, use_bias=True, seed=None, name=None):
+                use_bias=True, seed=None, name=None):
         super().__init__(name=name)
 
         # Initialize encoder. It returns ht that can be used for decoder.
@@ -39,16 +39,29 @@ class TranslatorRNN(tf.Module):
                                    max_sequence_size=max_sequence_size, use_bias=use_bias, seed=seed)
 
     def __call__(self, x):
-        # Input Data should be 3-dimensional.
-        if x.shape.ndims != 3:
-            raise InvalidInputException(x.shape.ndims)
-
         ht = self.encoder(x)
         
         c_0 = ht
         s_0 = self.s0_dense(ht)
 
         return self.decoder(s_0, c_0)
+
+    # def fit(self, x, y):
+    #     # Input Data should be 3-dimensional.
+    #     if x.shape.ndims != 3 or y.shape.ndims != 3:
+    #         raise InvalidInputException(x.shape.ndims)
+        
+    #     with tf.GradientTape(watch_accessed_variables=False) as tape:
+    #         tape.watch(self.encoder.variables)
+    #         tape.watch(self.s0_dense.variables)
+    #         tape.watch(self.decoder.variables)
+
+    #         y_prediction = self.__call__(x)
+
+    #         loss = tf.reduce_mean(tf.square(y - y_prediction), axis=1)
+
+    #         gradient = tape.gradient(loss, )
+
 
     def __str__(self):
         return f"Simple Translator RNN\n\tEncoder: {self.encoder}\n\tDense: {self.s0_dense}\n\tDecoder: {self.decoder}"            

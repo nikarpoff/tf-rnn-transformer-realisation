@@ -87,8 +87,8 @@ class DecoderLSTM(tf.Module):
     def __call__(self, s_0: tf.Tensor, c_0: tf.Tensor):
         batch_size = s_0.shape[0]
 
-        START_TOKEN = tf.zeros(shape=(batch_size, self.output_token_length), dtype=tf.float32)
-        STOP_TOKEN = tf.ones(shape=(batch_size, self.output_token_length), dtype=tf.float32)
+        START_TOKEN = tf.ones(shape=(batch_size, self.output_token_length), dtype=tf.float32)
+        STOP_TOKEN = tf.zeros(shape=(batch_size, self.output_token_length), dtype=tf.float32)
         
         # Current output of model.
         current_sequence_size = 0
