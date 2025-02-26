@@ -13,10 +13,15 @@
 # limitations under the License.
 
 import re
+import numpy as np
 import tensorflow as tf
+from concurrent.futures import ThreadPoolExecutor
+from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from gensim.utils import simple_preprocess
 from gensim.models import FastText
 
+
+CLEAN_TEXT_REGEX = re.compile(r"[^а-яА-ЯёЁa-zA-Z]")
 
 def preprocess_text(text):
     """
@@ -24,18 +29,24 @@ def preprocess_text(text):
 
     Tokenize text.
     """
-    text = text = tf.compat.as_text(text.numpy())
-    text = re.sub(r"[^а-яА-Яa-zA-Z]", " ", text.lower())  # standardize
+    text = tf.get_static_value(text).decode("utf-8")
+    text = CLEAN_TEXT_REGEX.sub(" ", text.lower())  # standardize
     return simple_preprocess(text, min_len=1)  # tokenize
 
-def fit_vectorization_model(dataset, token_length, ru_model_save_path, en_model_save_path):
-    ru_sentences = []
-    en_sentences = []
-    
-    for ru, en in dataset:
-        ru_sentences.append(preprocess_text(ru))
-        en_sentences.append(preprocess_text(en))
-    
+def get_vectorization_model(dataset, token_length, ru_model_save_path, en_model_save_path):
+    """
+    Returns vectorization FastText models trained on dataset.
+
+    Saves trained model.
+    """
+    def process_sentence(ru, en):
+        return preprocess_text(ru), preprocess_text(en)
+
+    with ThreadPoolExecutor() as executor:
+        results = list(executor.map(process_sentence, *zip(*dataset)))
+
+    ru_sentences, en_sentences = zip(*results)
+
     ru_model = FastText(sentences=ru_sentences, vector_size=token_length, window=5, min_count=1, workers=12)
     en_model = FastText(sentences=en_sentences, vector_size=token_length, window=5, min_count=1, workers=12)
 
@@ -43,3 +54,79 @@ def fit_vectorization_model(dataset, token_length, ru_model_save_path, en_model_
     en_model.save(en_model_save_path)
 
     return ru_model, en_model
+
+def sentence_to_embedding(sentence, model, sentence_length, token_length):
+    """
+    Creates embedding with constant length from sentence.
+    
+    Returns matrix with shape (sentence_length, token_length).
+    """
+    tokens = preprocess_text(sentence)
+
+    if not tokens:
+        return np.zeros(shape=(sentence_length, token_length), dtype=np.float32)
+
+    # Use embeddings from model and transform result to required shape
+    word_vectors = np.zeros((sentence_length, token_length), dtype=np.float32)
+    word_vectors[:len(tokens)] = np.vstack([model.wv[word] for word in tokens[:sentence_length]])
+
+    return word_vectors
+
+
+class TextPreprocessing:
+    def __init__(self, ru_model, en_model, batch_size, sentence_length, token_length):
+        self.ru_model = ru_model
+        self.en_model = en_model
+        self.batch_size = batch_size
+        self.sentence_length = sentence_length
+        self.token_length = token_length
+
+        self.STOP_TOKEN = tf.zeros(shape=token_length, dtype=np.float32)
+
+    def preprocess_dataset(self, dataset):
+        """
+        Preprocess strings list like dataset to tensors with shape (batch_size, sentence_length, token_length).
+
+        Uses embeddings models for text vectorization.
+        """
+        def wrap_func(ru, en):
+            return (sentence_to_embedding(ru, self.ru_model, self.sentence_length, self.token_length),
+                    sentence_to_embedding(en, self.en_model, self.sentence_length, self.token_length))
+    
+        def tf_wrap(ru, en):
+            return tf.numpy_function(wrap_func, [ru, en], [tf.float32, tf.float32])
+    
+        return (dataset.map(tf_wrap, num_parallel_calls=tf.data.AUTOTUNE)
+            .batch(self.batch_size, drop_remainder=True)
+            .cache()
+            .prefetch(tf.data.AUTOTUNE))
+
+    def preprocess_ru_string(self, string):
+        return tf.expand_dims(sentence_to_embedding(string, self.ru_model, self.sentence_length, self.token_length), axis=0)
+
+    def preprocess_en_string(self, string):
+        return tf.expand_dims(sentence_to_embedding(string, self.en_model, self.sentence_length, self.token_length), axis=0)
+    
+    def get_ru_string_from_embedding(self, embedding):
+        string_result = ""
+
+        for i in range(self.sentence_length):
+            if tf.reduce_all(tf.abs(embedding[i] - self.STOP_TOKEN) < 1e-5):
+                return string_result
+            
+            string_result += self.ru_model.wv.similar_by_vector(embedding[i].numpy(), topn=1)[0][0]
+            string_result += " "
+
+        return string_result
+
+    def get_en_string_from_embedding(self, embedding):
+        string_result = ""
+
+        for i in range(self.sentence_length):
+            if tf.reduce_all(tf.abs(embedding[i] - self.STOP_TOKEN) < 1e-5):
+                return string_result
+            
+            string_result += self.en_model.wv.similar_by_vector(embedding[i].numpy(), topn=1)[0][0]
+            string_result += " "
+
+        return string_result

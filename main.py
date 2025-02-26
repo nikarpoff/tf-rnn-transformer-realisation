@@ -13,32 +13,65 @@
 # limitations under the License.
 
 import os
+import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
 from translator import TranslatorRNN
-from preprocess import fit_vectorization_model
+from preprocess import TextPreprocessing, get_vectorization_model, preprocess_text
 from gensim.models import FastText
 
 
-VECTORIZATION_MODELS_PATH = "vectorization-models"
-VECTORIZATION_RU_MODEL_PATH = f"{VECTORIZATION_MODELS_PATH}/word2vec_ru.model"
-VECTORIZATION_EN_MODEL_PATH = f"{VECTORIZATION_MODELS_PATH}/word2vec_en.model"
-TOKEN_LENGTH = 100
+MODELS_PATH = "models"
+VECTORIZATION_MODELS_PATH = os.path.join(MODELS_PATH, "vectorization")
+RNN_MODELS_PATH = os.path.join(MODELS_PATH, "rnn_translators")
+VECTORIZATION_RU_MODEL_PATH = os.path.join(VECTORIZATION_MODELS_PATH, "ru_model.bin")
+VECTORIZATION_EN_MODEL_PATH = os.path.join(VECTORIZATION_MODELS_PATH, "en_model.bin")
+TOKEN_LENGTH = 300
+SEQUENCE_SIZE = 15
+LEARNING_RATE = 0.001
+BATCH_SIZE = 64
+EPOCHS = 20
+
+
+def train_step(model, optimizer, loss_func, x_batch, y_batch):
+    with tf.GradientTape() as tape:
+        y_pred = model(x_batch)
+        loss = loss_func(y_batch, y_pred)
+
+    gradients = tape.gradient(loss, model.trainable_variables)
+    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+    
+    return loss
+
+def train_model(model, dataset, epochs, optimizer, loss_func):
+    for epoch in range(epochs):
+        print(f"\nEpoch {epoch + 1}/{epochs}")
+        epoch_loss = 0
+        for batch, (x_batch, y_batch) in enumerate(dataset):
+            loss = train_step(model, optimizer, loss_func, x_batch, y_batch)
+            epoch_loss += loss
+
+            if batch % 100 == 0:
+                print(f"\tBatch {batch}, Loss: {loss.numpy():.4f}")
+
+        print(f"Epoch loss: {epoch_loss.numpy() / len(dataset)}")
 
 
 if __name__ == '__main__':
     # Loading dataset ted_hrlr_translate/ru_to_en.
     print("\nLoading dataset...\n")
     dataset, info = tfds.load('ted_hrlr_translate/ru_to_en', with_info=True, as_supervised=True)
-    train_dataset, test_dataset = dataset['train'], dataset['test']
+    train_dataset, val_dataset, test_dataset = dataset['train'], dataset['validation'], dataset['test']
 
     print("Dataset loaded! Info:")
     print(info)
 
     # Initializing Word2Vec text vectorization models.
-    if not os.path.isdir(VECTORIZATION_MODELS_PATH):
+    if not os.path.isdir(MODELS_PATH):
+        os.mkdir(MODELS_PATH)
         os.mkdir(VECTORIZATION_MODELS_PATH)
+        os.mkdir(RNN_MODELS_PATH)
 
     if os.path.isfile(VECTORIZATION_RU_MODEL_PATH) and os.path.isfile(VECTORIZATION_EN_MODEL_PATH):
         print("\nVectorization models were found in local files. Loading models...\n")
@@ -46,15 +79,33 @@ if __name__ == '__main__':
         en_vectorizer = FastText.load(VECTORIZATION_EN_MODEL_PATH)
     else:
         print("\nVectorization models not found in local files. Fitting models...\n")
-        ru_vectorizer, en_vectorizer = fit_vectorization_model(train_dataset, TOKEN_LENGTH, VECTORIZATION_RU_MODEL_PATH, VECTORIZATION_EN_MODEL_PATH)
+        ru_vectorizer, en_vectorizer = get_vectorization_model(train_dataset, TOKEN_LENGTH, VECTORIZATION_RU_MODEL_PATH, VECTORIZATION_EN_MODEL_PATH)
 
     print("Vectorization models are ready! Start fitting translator RNN.\n")
 
-    print(ru_vectorizer.wv["ахахахахах"])
+    # Preporcess dataset to use FastText embeddings
+    preprocessing = TextPreprocessing(ru_vectorizer, en_vectorizer, BATCH_SIZE, SEQUENCE_SIZE, TOKEN_LENGTH)
+
+    train_data = preprocessing.preprocess_dataset(train_dataset)
+    val_data = preprocessing.preprocess_dataset(val_dataset)
+    test_data = preprocessing.preprocess_dataset(test_dataset)
 
     # Initialize model.
-    translator = TranslatorRNN(encoder_units=[100, 50, 100], token_length=TOKEN_LENGTH, max_sequence_size=15, seed=7)
+    translator = TranslatorRNN(encoder_units=[500, 500, 100], token_length=TOKEN_LENGTH, max_sequence_size=SEQUENCE_SIZE, seed=7)
     print(translator)
 
     # Fit model.
-    # translator.fit()
+    optimizer = tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE)
+    loss = tf.keras.losses.MeanSquaredError()
+
+    train_model(translator, val_data, EPOCHS, optimizer, loss)
+
+    # Test.
+    example_string = tf.constant("И вот, на рассвете ты не заметил, как начался новый день", dtype=tf.string)
+    encoded_example = preprocessing.preprocess_ru_string(example_string)
+
+    print(preprocessing.get_ru_string_from_embedding(encoded_example[0]))
+
+    translation = translator(encoded_example)
+
+    print(preprocessing.get_en_string_from_embedding(tf.constant(translation)[0]))

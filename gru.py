@@ -147,7 +147,7 @@ class DeepEncoderGRU(tf.Module):
         return h
     
     def __str__(self):
-        model_str = f"Multilayer RNN with {len(self.deep_model)} layers (last layer added natively):"
+        model_str = f"Multilayer RNN with {len(self.deep_model)} layers:"
 
         for sub_model in self.deep_model:
             model_str += f"\n\t\t\t{sub_model}"

@@ -46,22 +46,6 @@ class TranslatorRNN(tf.Module):
 
         return self.decoder(s_0, c_0)
 
-    # def fit(self, x, y):
-    #     # Input Data should be 3-dimensional.
-    #     if x.shape.ndims != 3 or y.shape.ndims != 3:
-    #         raise InvalidInputException(x.shape.ndims)
-        
-    #     with tf.GradientTape(watch_accessed_variables=False) as tape:
-    #         tape.watch(self.encoder.variables)
-    #         tape.watch(self.s0_dense.variables)
-    #         tape.watch(self.decoder.variables)
-
-    #         y_prediction = self.__call__(x)
-
-    #         loss = tf.reduce_mean(tf.square(y - y_prediction), axis=1)
-
-    #         gradient = tape.gradient(loss, )
-
-
     def __str__(self):
-        return f"Simple Translator RNN\n\tEncoder: {self.encoder}\n\tDense: {self.s0_dense}\n\tDecoder: {self.decoder}"            
+        # return f"Simple Translator RNN\n\tEncoder: {self.encoder}\n\tDense: {self.s0_dense}\n\tDecoder: {self.decoder}"   
+        return f"Simple Translator RNN\n\tEncoder: {self.encoder}"            

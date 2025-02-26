@@ -81,7 +81,7 @@ class DecoderLSTM(tf.Module):
 
         # Weights for y prediction.
         self.W_y = tf.Variable(tf.initializers.GlorotUniform(seed=seed)(shape=(input_length, output_token_length)), dtype=tf.float32)
-        self.b_y = tf.Variable(tf.zeros(shape=(output_token_length,)), dtype=tf.float32)
+        self.b_y = tf.Variable(tf.zeros(shape=(output_token_length,)), dtype=tf.float32, trainable=use_bias)
 
 
     def __call__(self, s_0: tf.Tensor, c_0: tf.Tensor):
@@ -100,9 +100,9 @@ class DecoderLSTM(tf.Module):
         s = s_0  # decoder hidden states
         c = c_0  # decoder context
 
-        # Prediction works while max output sequence len not reached or while LSTM predicts STOP token.
-        while current_sequence_size < self.max_sequence_size and tf.reduce_any(tf.not_equal(y, STOP_TOKEN)):
-            s, c = self.lstm(y_predicts[-1], s, c)
+        # Prediction works while max output sequence len not reached or while LSTM not predicts STOP token.
+        while current_sequence_size < self.max_sequence_size and tf.reduce_any(tf.abs(y - STOP_TOKEN) > 1e-5):
+            s, c = self.lstm(y, s, c_0)
 
             # Predict current word y (embedded) from new hidden state s 
             y = tf.sigmoid(tf.matmul(s, self.W_y) + self.b_y)
@@ -110,7 +110,10 @@ class DecoderLSTM(tf.Module):
 
             current_sequence_size += 1
 
-        return tf.stack(y_predicts, axis=1)
+        if current_sequence_size < self.max_sequence_size:
+            y_predicts = tf.keras.utils.pad_sequences(y_predicts, maxlen=self.max_sequence_size + 1, value=STOP_TOKEN)
+
+        return tf.stack(y_predicts[1:], axis=1)  # first "START" token not required for translation.
 
     def __str__(self):
         return f"Decoder based on LSTM"
