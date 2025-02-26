@@ -15,10 +15,7 @@
 import re
 import numpy as np
 import tensorflow as tf
-from concurrent.futures import ThreadPoolExecutor
-from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from gensim.utils import simple_preprocess
-from gensim.models import FastText
 
 
 CLEAN_TEXT_REGEX = re.compile(r"[^а-яА-ЯёЁa-zA-Z]")
@@ -32,28 +29,6 @@ def preprocess_text(text):
     text = tf.get_static_value(text).decode("utf-8")
     text = CLEAN_TEXT_REGEX.sub(" ", text.lower())  # standardize
     return simple_preprocess(text, min_len=1)  # tokenize
-
-def get_vectorization_model(dataset, token_length, ru_model_save_path, en_model_save_path):
-    """
-    Returns vectorization FastText models trained on dataset.
-
-    Saves trained model.
-    """
-    def process_sentence(ru, en):
-        return preprocess_text(ru), preprocess_text(en)
-
-    with ThreadPoolExecutor() as executor:
-        results = list(executor.map(process_sentence, *zip(*dataset)))
-
-    ru_sentences, en_sentences = zip(*results)
-
-    ru_model = FastText(sentences=ru_sentences, vector_size=token_length, window=5, min_count=1, workers=12)
-    en_model = FastText(sentences=en_sentences, vector_size=token_length, window=5, min_count=1, workers=12)
-
-    ru_model.save(ru_model_save_path)
-    en_model.save(en_model_save_path)
-
-    return ru_model, en_model
 
 def sentence_to_embedding(sentence, model, sentence_length, token_length):
     """
