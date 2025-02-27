@@ -16,7 +16,7 @@
 import tensorflow as tf
 
 
-class CellGRU(tf.Module):
+class CellGRU(tf.keras.layers.Layer):
     """
     :param units - units (number of neurons) that used to compute the hidden state.
     :param token_length - number of x's features or length of one token (symbol/word/etc).
@@ -24,72 +24,89 @@ class CellGRU(tf.Module):
 
     def __init__(self, units: int, token_length: int, use_bias: bool, seed: int, name=None):
         super().__init__(name=name)
+        self.units = units
+        self.token_length = token_length
+        self.use_bias = use_bias
+        self.seed = seed
 
+    def build(self, input_shape):
         # Use Glorot Uniform initializer for weights initializing, zeros initializer for bias.
-        w_initializer = tf.initializers.GlorotUniform(seed=seed)
-        zeros_initializer = tf.initializers.Zeros()
+        w_initializer = tf.initializers.GlorotUniform(seed=self.seed)
 
         # Initialize reset gate weights.
-        self.W_x_r = tf.Variable(w_initializer(shape=(token_length, units)), dtype=tf.float32,
-                                 name=f"W_x_r_{self.name}", trainable=True)
-
-        self.W_h_r = tf.Variable(w_initializer(shape=(units, units)), dtype=tf.float32,
-                                 name=f"W_h_r_{self.name}", trainable=True)
-
-        self.b_r = tf.Variable(zeros_initializer(shape=(units,)), name=f"b_r_{self.name}", trainable=use_bias)
+        self.W_x_r = self.add_weight(shape=(self.token_length, self.units), initializer=w_initializer, name=f"W_x_r")
+        self.W_h_r = self.add_weight(shape=(self.units, self.units), initializer=w_initializer, name=f"W_h_r")
 
         # Initialize update gate weights.
-        self.W_x_u = tf.Variable(w_initializer(shape=(token_length, units)), dtype=tf.float32,
-                                 name=f"W_x_u_{self.name}", trainable=True)
-
-        self.W_h_u = tf.Variable(w_initializer(shape=(units, units)), dtype=tf.float32,
-                                 name=f"W_h_u_{self.name}", trainable=True)
-
-        self.b_u = tf.Variable(zeros_initializer(shape=(units,)), name=f"b_u_{self.name}", trainable=use_bias)
+        self.W_x_u = self.add_weight(shape=(self.token_length, self.units), initializer=w_initializer, name=f"W_x_u")
+        self.W_h_u = self.add_weight(shape=(self.units, self.units), initializer=w_initializer, name=f"W_h_u")
 
         # Initialize candidate cell state weights.
-        self.W_x_h = tf.Variable(w_initializer(shape=(token_length, units)), dtype=tf.float32,
-                                 name=f"W_x_h_{self.name}", trainable=True)
+        self.W_x_h = self.add_weight(shape=(self.token_length, self.units), initializer=w_initializer, name=f"W_x_h")
+        self.W_h_h = self.add_weight(shape=(self.units, self.units), initializer=w_initializer, name=f"W_h_h")
 
-        self.W_h_h = tf.Variable(w_initializer(shape=(units, units)), dtype=tf.float32,
-                                 name=f"W_h_h_{self.name}", trainable=True)
+        if self.use_bias:
+            self.b_r = self.add_weight(shape=(self.units,), initializer='zeros', name=f"b_r")
+            self.b_u = self.add_weight(shape=(self.units,), initializer='zeros', name=f"b_u")
 
-    def __call__(self, x: tf.Tensor, h: tf.Tensor) -> tf.Tensor:
-        r = tf.sigmoid(tf.matmul(x, self.W_x_r) + tf.matmul(h, self.W_h_r) + self.b_r)  # what should be remembered
-        u = tf.sigmoid(tf.matmul(x, self.W_x_u) + tf.matmul(h, self.W_h_u) + self.b_u)  # what should be updated
+        super().build(input_shape)
+
+    def call(self, x: tf.Tensor, h: tf.Tensor):
+        r = tf.sigmoid(tf.matmul(x, self.W_x_r) + tf.matmul(h, self.W_h_r) + (self.b_r if self.use_bias else 0))  # what should be remembered
+        u = tf.sigmoid(tf.matmul(x, self.W_x_u) + tf.matmul(h, self.W_h_u) + (self.b_u if self.use_bias else 0))  # what should be updated
 
         h_cand = tf.tanh(tf.matmul(x, self.W_x_h) + tf.matmul(r * h, self.W_h_h))  # what we can add
         h_new = (1 - u) * h_cand + u * h  # what we got after adding (h_t)
 
         return h_new
     
-class GRU(tf.Module):
+    def get_config(self):
+        return {
+            "units": self.units,
+            "token_length": self.token_length,
+            "use_bias": self.use_bias,
+            "seed": self.seed,
+            "name": self.name
+        }
+
+
+class GRU(tf.keras.layers.Layer):
     def __init__(self, units: int, token_length: int, use_bias: bool, return_sequences: bool, seed: int, name=None):
         super().__init__(name=name)
         self.units = units
         self.token_length = token_length
         self.return_sequences = return_sequences
+        self.use_bias = use_bias
+        self.seed = seed
         self.cell = CellGRU(units, token_length, use_bias, seed)
 
-    def __call__(self, x):
-        batch_size, sequence_length, _ = tf.shape(x)
+    def call(self, x):
+        batch_size = tf.shape(x)[0]
+        time_steps = tf.shape(x)[1]
 
+        # The one step of LSTM computation.
+        def loop_body(step, h, hidden_states):
+            x_t = x[:, step, :]
+            h_next = self.cell(x_t, h)  # compute new h
+            hidden_states = hidden_states.write(step, h_next)  # remember h
+            return step + 1, h, hidden_states
+        
         # Initialize h_0.
-        h = tf.zeros([batch_size, self.units])
-        hidden_states = []  # list of (batch_size, units) outputs with sequence_length size
+        h = tf.zeros((batch_size, self.units), dtype=tf.float32)
+        hidden_states = tf.TensorArray(tf.float32, size=time_steps)  # list of (batch_size, units) outputs with sequence_length size
         
         # Every element of sequence is x on one step.
-        for t in range(sequence_length):
-            x_t = x[:, t, :]
-            h = self.cell(x_t, h)
-            hidden_states.append(h)
+        _, h, hidden_states = tf.while_loop(
+            cond=lambda step, *_: step < time_steps,
+            body=loop_body,
+            loop_vars=(0, h, hidden_states)
+        )
 
         if self.return_sequences:
             # Transform list to tensor (stacked by batches).
-            hidden_states = tf.stack(hidden_states, axis=1)  # (batch_size, seq_len, hidden_dim)
-            return hidden_states
-        else:
-            return h
+            return tf.transpose(hidden_states.stack(), [1, 0, 2])  # (batch_size, seq_len, hidden_dim)
+
+        return h
 
     def __str__(self):
         if self.return_sequences:
@@ -98,15 +115,29 @@ class GRU(tf.Module):
             output_shape = f"(None, {self.units})"
 
         return f"GRU layer. Output shape - {output_shape}"
+    
+    def get_config(self):
+        return {
+            "units": self.units,
+            "token_length": self.token_length,
+            "use_bias": self.use_bias,
+            "seed": self.seed,
+            "name": self.name
+        }
 
-class DeepEncoderGRU(tf.Module):
+
+class DeepEncoderGRU(tf.keras.layers.Layer):
     """
     Realisation of multilayered RNN based on GRU.
 
     Last layer returns context of sequence. It always have shape (batch_size, token_length * 2).
     """
     def __init__(self, units_list: list, token_length: int, use_bias=True, seed=None, name=None):
-        super().__init__(name)
+        super().__init__(name=name)
+        self.units_list = units_list
+        self.token_length = token_length
+        self.use_bias = use_bias
+        self.seed = seed
         
         # First layer has input shape (batch_size, seq_len, token_length).
         self.deep_model = [
@@ -138,7 +169,7 @@ class DeepEncoderGRU(tf.Module):
             seed=seed,
         ))
 
-    def __call__(self, x):
+    def call(self, x):
         h = x
 
         for layer in self.deep_model:
@@ -153,3 +184,12 @@ class DeepEncoderGRU(tf.Module):
             model_str += f"\n\t\t\t{sub_model}"
 
         return model_str
+    
+    def get_config(self):
+        return {
+            "units_list": self.units_list,
+            "token_length": self.token_length,
+            "use_bias": self.use_bias,
+            "seed": self.seed,
+            "name": self.name
+        }

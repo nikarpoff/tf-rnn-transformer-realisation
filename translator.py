@@ -36,17 +36,19 @@ class TranslatorRNN(tf.keras.Model):
         self.seed = seed
 
         # Initialize encoder. It returns ht that can be used for decoder.
-        self.encoder = tf.keras.Sequential(name="encoder")
-        self.encoder.add(tf.keras.Input(shape=(max_sequence_size, token_length)))
+        # self.encoder = tf.keras.Sequential(name="encoder")
+        # self.encoder.add(tf.keras.Input(shape=(max_sequence_size, token_length)))
 
-        for i in range(len(encoder_units)):
-            self.encoder.add(tf.keras.layers.GRU(encoder_units[i],
-                                                 use_bias=use_bias,
-                                                 seed=seed,
-                                                 return_sequences=True if i < len(encoder_units) - 1 else False,  # last layer returns vectors
-                                                 name=f"gru_layer_{i}",
-                                                 #regularization, dropout, etc,
-            ))
+        # for i in range(len(encoder_units)):
+        #     self.encoder.add(tf.keras.layers.GRU(encoder_units[i],
+        #                                          use_bias=use_bias,
+        #                                          seed=seed,
+        #                                          return_sequences=True if i < len(encoder_units) - 1 else False,  # last layer returns vectors
+        #                                          name=f"gru_layer_{i}",
+        #                                          #regularization, dropout, etc,
+        #     ))
+
+        self.encoder = DeepEncoderGRU(encoder_units, token_length, use_bias, seed)
 
         # Initialize dense layer to predict s0 from encoder ht output.
         self.s0_dense = tf.keras.layers.Dense(

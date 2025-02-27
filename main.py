@@ -19,6 +19,7 @@ import tensorflow as tf
 import util
 from translator import TranslatorRNN
 from lstm import DecoderLSTM, CellLSTM
+from gru import DeepEncoderGRU, GRU, CellGRU
 from preprocess import TextPreprocessing, preprocess_text
 
 
@@ -28,7 +29,7 @@ TOKEN_LENGTH = 300
 SEQUENCE_SIZE = 15
 LEARNING_RATE = 0.001
 BATCH_SIZE = 64
-EPOCHS = 1
+EPOCHS = 20
 
 
 if __name__ == '__main__':
@@ -72,17 +73,22 @@ if __name__ == '__main__':
 
     translator.save(os.path.join(RNN_MODELS_PATH, f"rnn-translator"))
 
-    # loaded_model = tf.keras.models.load_model(os.path.join(RNN_MODELS_PATH, f"rnn-translator"),
-    #                                       custom_objects={"TranslatorRNN": TranslatorRNN,
-    #                                                       "DecoderLSTM": DecoderLSTM,
-    #                                                       "CellLSTM": CellLSTM})
-
     # Test.
+    loaded_model = tf.keras.models.load_model(os.path.join(RNN_MODELS_PATH, f"rnn-translator"),
+                                          custom_objects={"TranslatorRNN": TranslatorRNN,
+                                                          "DeepEncoderGRU": DeepEncoderGRU,
+                                                          "GRU": GRU,
+                                                          "CellGRU": CellGRU,
+                                                          "DecoderLSTM": DecoderLSTM,
+                                                          "CellLSTM": CellLSTM})
+    
     example_string = tf.constant("И вот, на рассвете ты не заметил, как начался новый день", dtype=tf.string)
     encoded_example = preprocessing.preprocess_ru_string(example_string)
 
     print(preprocessing.get_ru_string_from_embedding(encoded_example[0]))
 
     translation = translator(encoded_example)
+    translation_from_loaded = loaded_model(encoded_example)
 
-    print(preprocessing.get_en_string_from_embedding(tf.constant(translation)[0]))
+    print(f"Translation: {preprocessing.get_en_string_from_embedding(tf.constant(translation)[0])}")
+    print(f"Translation by loaded model: {preprocessing.get_en_string_from_embedding(tf.constant(translation_from_loaded)[0])}")
