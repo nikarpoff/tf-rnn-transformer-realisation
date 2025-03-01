@@ -13,18 +13,10 @@
 # limitations under the License.
 
 
-import os
 import tensorflow_datasets as tfds
 from concurrent.futures import ThreadPoolExecutor
 from gensim.models import FastText
-from preprocess import preprocess_text
-
-
-MODELS_PATH = "models"
-VECTORIZATION_MODELS_PATH = os.path.join(MODELS_PATH, "vectorization")
-VECTORIZATION_RU_MODEL_PATH = os.path.join(VECTORIZATION_MODELS_PATH, "ru_model.bin")
-VECTORIZATION_EN_MODEL_PATH = os.path.join(VECTORIZATION_MODELS_PATH, "en_model.bin")
-VECTORIZATION_RU_EN_MODEL_PATH = os.path.join(VECTORIZATION_MODELS_PATH, "ru_en_model.bin")
+from util.preprocess import preprocess_text
 
 
 def load_dataset(dataset_name: str):
@@ -32,16 +24,16 @@ def load_dataset(dataset_name: str):
     return dataset['train'], dataset['validation'], dataset['test'], info
 
 
-def load_ru_en_models():
-    ru_vectorizer = FastText.load(VECTORIZATION_RU_MODEL_PATH)
-    en_vectorizer = FastText.load(VECTORIZATION_EN_MODEL_PATH)
+def load_ru_en_models(ru_path, en_path):
+    ru_vectorizer = FastText.load(ru_path)
+    en_vectorizer = FastText.load(en_path)
 
     return ru_vectorizer, en_vectorizer
 
-def load_ru_en_model():
-    return FastText.load(VECTORIZATION_RU_EN_MODEL_PATH)
+def load_ru_en_model(model_path):
+    return FastText.load(model_path)
 
-def get_vectorization_models(dataset, token_length, ru_model_save_path=VECTORIZATION_RU_MODEL_PATH, en_model_save_path=VECTORIZATION_EN_MODEL_PATH):
+def get_vectorization_models(dataset, token_length, ru_model_save_path, en_model_save_path):
     """
     Returns vectorization FastText models trained on dataset.
 
@@ -64,7 +56,7 @@ def get_vectorization_models(dataset, token_length, ru_model_save_path=VECTORIZA
 
     return ru_model, en_model
 
-def get_ru_en_vectorization_model(dataset, token_length, ru_en_model_save_path=VECTORIZATION_RU_EN_MODEL_PATH):
+def get_ru_en_vectorization_model(dataset, token_length, ru_en_model_save_path):
     """
     Returns vectorization FastText model trained on dataset (on both of ru and en examples).
 

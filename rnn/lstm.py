@@ -90,12 +90,18 @@ class DecoderLSTM(tf.keras.layers.Layer):
         self.cell = CellLSTM(units=input_length, token_length=output_token_length, use_bias=use_bias, seed=seed)
 
         # Dense for y prediction.
-        self.dense = tf.keras.layers.Dense(
-            output_token_length,
-            activation='linear',
-            kernel_initializer=tf.keras.initializers.GlorotUniform(seed=seed),
-            use_bias=use_bias
-        )
+        self.dense = tf.keras.Sequential([
+            tf.keras.layers.Dense(
+                input_length,
+                activation='relu',
+                kernel_initializer=tf.keras.initializers.GlorotUniform(seed=seed),
+                use_bias=use_bias
+        ), tf.keras.layers.Dense(
+                output_token_length,
+                activation='tanh',
+                kernel_initializer=tf.keras.initializers.GlorotUniform(seed=seed),
+                use_bias=use_bias
+        )])
 
     def call(self, s_0: tf.Tensor, c_0: tf.Tensor):
         # The one step of LSTM computation.
@@ -130,4 +136,5 @@ class DecoderLSTM(tf.keras.layers.Layer):
         }
 
     def __str__(self):
-        return f"Decoder based on LSTM"
+        return f"Decoder based on LSTM. Output shape: (None, {self.max_sequence_size}, {self.output_token_length})\n"\
+               f"\tDense for y prediction: {self.dense}"

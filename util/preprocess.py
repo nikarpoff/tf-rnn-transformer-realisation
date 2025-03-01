@@ -58,15 +58,33 @@ class TextPreprocessing:
 
         self.STOP_TOKEN = tf.zeros(shape=token_length, dtype=np.float32)
 
-    def preprocess_dataset(self, dataset):
+    def preprocess_ru_to_en_dataset(self, dataset):
         """
         Preprocess strings list like dataset to tensors with shape (batch_size, sentence_length, token_length).
 
-        Uses embeddings models for text vectorization.
+        Uses embeddings models for text vectorization. X = ru; Y = en.
         """
         def wrap_func(ru, en):
             return (sentence_to_embedding(ru, self.ru_model, self.sentence_length, self.token_length),
                     sentence_to_embedding(en, self.en_model, self.sentence_length, self.token_length))
+    
+        def tf_wrap(ru, en):
+            return tf.numpy_function(wrap_func, [ru, en], [tf.float32, tf.float32])
+    
+        return (dataset.map(tf_wrap, num_parallel_calls=tf.data.AUTOTUNE)
+            .batch(self.batch_size, drop_remainder=True)
+            .cache()
+            .prefetch(tf.data.AUTOTUNE))
+    
+    def preprocess_en_to_ru_dataset(self, dataset):
+        """
+        Preprocess strings list like dataset to tensors with shape (batch_size, sentence_length, token_length).
+
+        Uses embeddings models for text vectorization. X = en; Y = ru.
+        """
+        def wrap_func(ru, en):
+            return (sentence_to_embedding(en, self.en_model, self.sentence_length, self.token_length),
+                    sentence_to_embedding(ru, self.ru_model, self.sentence_length, self.token_length))
     
         def tf_wrap(ru, en):
             return tf.numpy_function(wrap_func, [ru, en], [tf.float32, tf.float32])

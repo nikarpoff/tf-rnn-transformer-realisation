@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import tensorflow as tf
 import re
+import numpy as np
+import tensorflow as tf
 
-from gru import DeepEncoderGRU
-from dense import Dense
-from lstm import DecoderLSTM
+from rnn.gru import DeepEncoderGRU
+from rnn.lstm import DecoderLSTM
 from gensim.utils import simple_preprocess
 
 
@@ -36,18 +36,6 @@ class TranslatorRNN(tf.keras.Model):
         self.seed = seed
 
         # Initialize encoder. It returns ht that can be used for decoder.
-        # self.encoder = tf.keras.Sequential(name="encoder")
-        # self.encoder.add(tf.keras.Input(shape=(max_sequence_size, token_length)))
-
-        # for i in range(len(encoder_units)):
-        #     self.encoder.add(tf.keras.layers.GRU(encoder_units[i],
-        #                                          use_bias=use_bias,
-        #                                          seed=seed,
-        #                                          return_sequences=True if i < len(encoder_units) - 1 else False,  # last layer returns vectors
-        #                                          name=f"gru_layer_{i}",
-        #                                          #regularization, dropout, etc,
-        #     ))
-
         self.encoder = DeepEncoderGRU(encoder_units, token_length, use_bias, seed)
 
         # Initialize dense layer to predict s0 from encoder ht output.
@@ -88,38 +76,4 @@ class TranslatorRNN(tf.keras.Model):
         return cls(**config)
 
     def __str__(self):
-        # return f"Simple Translator RNN\n\tEncoder: {self.encoder}\n\tDense: {self.s0_dense}\n\tDecoder: {self.decoder}"   
-        return f"Simple Translator RNN\n\tEncoder: {self.encoder}"
-
-
-class VectorizationTranslator():
-    def __init__(self, vectorizer):
-        self.vectorizer = vectorizer
-        self.clean_text_regex = re.compile(r"[^а-яА-ЯёЁa-zA-Z]")
-
-        self.ru_to_en_embedding = vectorizer.wv["человечество"] - vectorizer.wv["humanity"]
-        self.en_to_ru_embedding = vectorizer.wv["humanity"] - vectorizer.wv["человечество"]
-
-    def _preprocess_text(self, text: str):
-        text = self.clean_text_regex.sub(" ", text.lower())  # standardize
-        return simple_preprocess(text, min_len=1)  # tokenize
-
-    def translate_ru_to_en(self, text: str):
-        text = self._preprocess_text(text)
-        result_a = ""
-        result_b = ""
-
-        for word in text:
-            translation_embedding_a = self.vectorizer.wv[word] + self.ru_to_en_embedding
-            translation_embedding_b = self.vectorizer.wv[word] + self.en_to_ru_embedding
-
-            result_a += f"{self.vectorizer.wv.similar_by_vector(translation_embedding_a, topn=1)[0][0]} "
-            result_b += f"{self.vectorizer.wv.similar_by_vector(translation_embedding_b, topn=1)[0][0]} "
-
-        print(result_a)
-        print(result_b)
-
-        return result_b
-
-    def translate_en_to_ru(text: str):
-        pass
+        return f"Simple Translator RNN\n\tEncoder: {self.encoder}\n\tDense: {self.s0_dense}\n\tDecoder: {self.decoder}"   

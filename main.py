@@ -13,18 +13,24 @@
 # limitations under the License.
 
 import os
-import numpy as np
+import argparse
 import tensorflow as tf
 
-import util
+import util.util
+import rnn.demo
+from util.preprocess import TextPreprocessing
 from translator import TranslatorRNN
-from lstm import DecoderLSTM, CellLSTM
-from gru import DeepEncoderGRU, GRU, CellGRU
-from preprocess import TextPreprocessing, preprocess_text
 
 
 MODELS_PATH = "models"
+VECTORIZATION_MODELS_PATH = os.path.join(MODELS_PATH, "vectorization")
+VECTORIZATION_RU_MODEL_PATH = os.path.join(VECTORIZATION_MODELS_PATH, "ru_model.bin")
+VECTORIZATION_EN_MODEL_PATH = os.path.join(VECTORIZATION_MODELS_PATH, "en_model.bin")
+VECTORIZATION_RU_EN_MODEL_PATH = os.path.join(VECTORIZATION_MODELS_PATH, "ru_en_model.bin")
 RNN_MODELS_PATH = os.path.join(MODELS_PATH, "rnn_translators")
+RNN_RU_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "rnn-ru-to-en-translator")
+RNN_EN_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "rnn-en-to-ru-translator")
+
 TOKEN_LENGTH = 300
 SEQUENCE_SIZE = 15
 LEARNING_RATE = 0.001
@@ -32,63 +38,155 @@ BATCH_SIZE = 64
 EPOCHS = 20
 
 
-if __name__ == '__main__':
-    # Loading dataset ted_hrlr_translate/ru_to_en.
-    print("\nLoading dataset...\n")
+def cli_arguments_preprocess():
+    parser = argparse.ArgumentParser(description="Machine translation powered by ANN")
     
-    train_dataset, val_dataset, test_dataset, info = util.load_dataset('ted_hrlr_translate/ru_to_en')
+    parser.add_argument("--task", required=True, 
+                      choices=["train", "test", "translate"],
+                      help="The operating mode: train/test/translate")
+    
+    parser.add_argument("--model", required=True,
+                      choices=["rnn", "transformer", "vectorization"],
+                      help="Model: rnn/transformer. For train only embedding models you can use 'vectorization' with task==train")
 
-    print("Dataset loaded! Info:")
-    print(info)
+    parser.add_argument("--lang", 
+                      choices=["ru", "en"],
+                      help="Language of source text (required for translate)")
+    
+    parser.add_argument("text", nargs="?", help="Text to be translated")
 
+    args = parser.parse_args()
+
+    if args.model == "vectorization" and args.task != "train":
+        parser.error("You can only use this model for 'train' tasks.")
+
+    if not args.lang and args.model != "vectorization":
+        parser.error("For any task except train embedding models you must provide --lang")
+
+    if args.task == "translate":
+        if not args.text:
+            parser.error("For translation, you need to provide the text")
+
+    return args.task, args.model, args.lang, args.text
+
+def load_dataset(silence=True):
+    # Loading dataset ted_hrlr_translate/ru_to_en.
+    if silence:
+        train_dataset, val_dataset, test_dataset, _ = util.util.load_dataset("ted_hrlr_translate/ru_to_en")
+        return train_dataset, val_dataset, test_dataset
+    else:
+        print("\nLoading dataset...\n")
+
+        train_dataset, val_dataset, test_dataset, info = util.util.load_dataset("ted_hrlr_translate/ru_to_en")
+    
+        print("Dataset loaded! Info:")
+        print(info)
+
+        return train_dataset, val_dataset, test_dataset
+
+def load_vectorization_models():
     print("Loading vectorization models...")
 
     try:
-        ru_vectorizer, en_vectorizer = util.load_ru_en_models()
+        ru_vectorizer, en_vectorizer = util.util.load_ru_en_models(VECTORIZATION_RU_MODEL_PATH, VECTORIZATION_EN_MODEL_PATH)
         print("\nVectorization models were loaded from local files.\n")
     except Exception:
-        print("\nVectorization models not found in local files. Fitting models...\n")
-        ru_vectorizer, en_vectorizer = util.get_vectorization_models(train_dataset, TOKEN_LENGTH)
+        print("\nVectorization models not found in local files.\n")
+        return None, None
+        
+    return ru_vectorizer, en_vectorizer
 
-    print("Vectorization models are ready! Start fitting translator RNN.\n")
+def fit_vectorization_models(dataset, token_length):
+    print("Fitting ru and en vectorization models...")
+    ru_vectorizer, en_vectorizer = util.util.get_vectorization_models(dataset, token_length, VECTORIZATION_RU_MODEL_PATH, VECTORIZATION_EN_MODEL_PATH)
 
-    # Preporcess dataset to use FastText embeddings
-    preprocessing = TextPreprocessing(ru_vectorizer, en_vectorizer, BATCH_SIZE, SEQUENCE_SIZE, TOKEN_LENGTH)
+    print("Vectorization models are ready!\n")
+    return ru_vectorizer, en_vectorizer
 
-    train_data = preprocessing.preprocess_dataset(train_dataset)
-    val_data = preprocessing.preprocess_dataset(val_dataset)
-    test_data = preprocessing.preprocess_dataset(test_dataset)
-
+def fit_rnn(train_data, val_data, optimizer, loss, encoder_units, token_length, max_sequence_size, save_path, seed):
     # Initialize model.
-    translator = TranslatorRNN(encoder_units=[500, 500, 100], token_length=TOKEN_LENGTH, max_sequence_size=SEQUENCE_SIZE, seed=7)
+    translator = TranslatorRNN(encoder_units=encoder_units, token_length=token_length, max_sequence_size=max_sequence_size, seed=seed)
     print(translator)
 
     # Fit model.
-    optimizer = tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE)
-    loss = tf.keras.losses.MeanSquaredError()
-
-    # train_model(translator, val_data, EPOCHS, optimizer, loss)
     translator.compile(optimizer=optimizer, loss=loss)
     translator.fit(train_data, batch_size=BATCH_SIZE, epochs=EPOCHS, validation_data=val_data)
 
-    translator.save(os.path.join(RNN_MODELS_PATH, f"rnn-translator"))
+    translator.save(save_path)
 
-    # Test.
-    loaded_model = tf.keras.models.load_model(os.path.join(RNN_MODELS_PATH, f"rnn-translator"),
-                                          custom_objects={"TranslatorRNN": TranslatorRNN,
-                                                          "DeepEncoderGRU": DeepEncoderGRU,
-                                                          "GRU": GRU,
-                                                          "CellGRU": CellGRU,
-                                                          "DecoderLSTM": DecoderLSTM,
-                                                          "CellLSTM": CellLSTM})
+
+def main():
+    task, model, lang, text = cli_arguments_preprocess()
+
+    # Dataset required for train and test tasks.
+    if task == "train" or task == "test":
+        train_dataset, val_dataset, test_dataset = load_dataset(silence=False)
+
+    # Load embedding models.
+    ru_vectorizer, en_vectorizer = load_vectorization_models()
+
+    # Embedding models were not loaded.
+    if not ru_vectorizer or not en_vectorizer:
+        # In task 'translate' we can not use dataset -> we should throw exception
+        if task == "translate":
+            raise Exception("You want to use vectorization models, but they were not found in the local files. Try to train models by command \n\tpython main.py --task=train --model=vectorization.")
+        
+        ru_vectorizer, en_vectorizer = fit_vectorization_models(train_dataset, TOKEN_LENGTH)
+
+
+    # Vectorization models were learned!
+    if model == "vectorization" and task == "train":
+        return
+
+    # Preporcess dataset with FastText embeddings model.
+    preprocessing = TextPreprocessing(ru_vectorizer, en_vectorizer, BATCH_SIZE, SEQUENCE_SIZE, TOKEN_LENGTH)
+
+    # Remember paths to models.
+    if lang == "ru":
+        rnn_path = RNN_RU_MODEL_PATH
+    if lang == "en":
+        rnn_path = RNN_EN_MODEL_PATH
+
+    # Task translate -> dataset not required, model can be loaded
+    if task == "translate":
+        if model == "rnn":
+            rnn.demo.translate_with_rnn(text, preprocessing, rnn_path, lang)
+        if model == "transformer":
+            print("TODO...")
+        
+        return
     
-    example_string = tf.constant("И вот, на рассвете ты не заметил, как начался новый день", dtype=tf.string)
-    encoded_example = preprocessing.preprocess_ru_string(example_string)
+    # Preprocess dataset.
+    if lang == "ru":
+        train_data = preprocessing.preprocess_ru_to_en_dataset(train_dataset)
+        val_data = preprocessing.preprocess_ru_to_en_dataset(val_dataset)
+        test_data = preprocessing.preprocess_ru_to_en_dataset(test_dataset)
+    if lang == "en":
+        train_data = preprocessing.preprocess_en_to_ru_dataset(train_dataset)
+        val_data = preprocessing.preprocess_en_to_ru_dataset(val_dataset)
+        test_data = preprocessing.preprocess_en_to_ru_dataset(test_dataset)
 
-    print(preprocessing.get_ru_string_from_embedding(encoded_example[0]))
+    # Specify optimizer and loss function.
+    optimizer = tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE)
+    loss = tf.keras.losses.MeanSquaredError()    
+        
+    if task == "test":
+        if model == "rnn":
+            print("TODO...")
+        if model == "transformer":
+            print("TODO...")
 
-    translation = translator(encoded_example)
-    translation_from_loaded = loaded_model(encoded_example)
+        return
 
-    print(f"Translation: {preprocessing.get_en_string_from_embedding(tf.constant(translation)[0])}")
-    print(f"Translation by loaded model: {preprocessing.get_en_string_from_embedding(tf.constant(translation_from_loaded)[0])}")
+    # There we have "train" task
+    if task == "train":
+        if model == "rnn":
+            fit_rnn(train_data, val_data, optimizer=optimizer, loss=loss, encoder_units=[500, 500],
+                    token_length=TOKEN_LENGTH, max_sequence_size=SEQUENCE_SIZE, save_path=rnn_path, seed=7)
+        else:
+            print("TODO...")
+    else:
+        raise Exception(f"Unknown task: {task}")
+
+if __name__ == "__main__":
+    main()
