@@ -27,9 +27,14 @@ VECTORIZATION_MODELS_PATH = os.path.join(MODELS_PATH, "vectorization")
 VECTORIZATION_RU_MODEL_PATH = os.path.join(VECTORIZATION_MODELS_PATH, "ru_model.bin")
 VECTORIZATION_EN_MODEL_PATH = os.path.join(VECTORIZATION_MODELS_PATH, "en_model.bin")
 VECTORIZATION_RU_EN_MODEL_PATH = os.path.join(VECTORIZATION_MODELS_PATH, "ru_en_model.bin")
+
 RNN_MODELS_PATH = os.path.join(MODELS_PATH, "rnn_translators")
 RNN_RU_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "rnn-ru-to-en-translator")
 RNN_EN_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "rnn-en-to-ru-translator")
+
+TRANSFORMER_MODELS_PATH = os.path.join(MODELS_PATH, "transformer_translators")
+TRANSFORMER_RU_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "transformer-ru-to-en-translator")
+TRANSFORMER_EN_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "transformer-en-to-ru-translator")
 
 TOKEN_LENGTH = 300
 SEQUENCE_SIZE = 15
@@ -68,6 +73,12 @@ def cli_arguments_preprocess():
             parser.error("For translation, you need to provide the text")
 
     return args.task, args.model, args.lang, args.text
+
+def create_file_structure():
+    os.mkdir(MODELS_PATH)
+    os.mkdir(VECTORIZATION_MODELS_PATH)
+    os.mkdir(RNN_MODELS_PATH)
+    os.mkdir(TRANSFORMER_MODELS_PATH)
 
 def load_dataset(silence=True):
     # Loading dataset ted_hrlr_translate/ru_to_en.
@@ -131,6 +142,7 @@ def main():
         if task == "translate":
             raise Exception("You want to use vectorization models, but they were not found in the local files. Try to train models by command \n\tpython main.py --task=train --model=vectorization.")
         
+        create_file_structure()  # here we know that vectorization model not found in local files -> there no any models and dirs for them
         ru_vectorizer, en_vectorizer = fit_vectorization_models(train_dataset, TOKEN_LENGTH)
 
 
