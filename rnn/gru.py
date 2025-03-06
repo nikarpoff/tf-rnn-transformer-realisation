@@ -132,7 +132,7 @@ class DeepEncoderGRU(tf.keras.layers.Layer):
 
     Last layer returns context of sequence. It always have shape (batch_size, token_length * 2).
     """
-    def __init__(self, units_list: list, token_length: int, use_bias=True, seed=None, name=None):
+    def __init__(self, units_list: list, token_length: int, use_bias=True, return_sequences=False, seed=None, name=None):
         super().__init__(name=name)
         self.units_list = units_list
         self.token_length = token_length
@@ -165,7 +165,7 @@ class DeepEncoderGRU(tf.keras.layers.Layer):
             units=units_list[-1],
             token_length=units_list[-2],
             use_bias=use_bias,
-            return_sequences=False,
+            return_sequences=return_sequences,
             seed=seed,
         ))
 
