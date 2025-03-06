@@ -36,8 +36,8 @@ TRANSFORMER_MODELS_PATH = os.path.join(MODELS_PATH, "transformer_translators")
 TRANSFORMER_RU_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "transformer-ru-to-en-translator")
 TRANSFORMER_EN_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "transformer-en-to-ru-translator")
 
-TOKEN_LENGTH = 300
-SEQUENCE_SIZE = 15
+TOKEN_LENGTH = 100
+SEQUENCE_SIZE = 10
 LEARNING_RATE = 0.001
 BATCH_SIZE = 64
 EPOCHS = 20
@@ -117,7 +117,8 @@ def fit_vectorization_models(dataset, token_length):
 def fit_rnn(train_data, val_data, optimizer, loss, encoder_units, token_length, max_sequence_size, save_path, seed):
     # Initialize model.
     translator = TranslatorRNN(encoder_units=encoder_units, token_length=token_length, max_sequence_size=max_sequence_size, seed=seed)
-    print(translator)
+    translator.build(input_shape=(BATCH_SIZE, max_sequence_size, token_length))
+    translator.summary()
 
     # Fit model.
     translator.compile(optimizer=optimizer, loss=loss)
@@ -180,7 +181,7 @@ def main():
 
     # Specify optimizer and loss function.
     optimizer = tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE)
-    loss = tf.keras.losses.MeanSquaredError()    
+    loss = tf.keras.losses.CosineSimilarity()    
         
     if task == "test":
         if model == "rnn":
@@ -193,8 +194,8 @@ def main():
     # There we have "train" task
     if task == "train":
         if model == "rnn":
-            fit_rnn(train_data, val_data, optimizer=optimizer, loss=loss, encoder_units=[500, 500],
-                    token_length=TOKEN_LENGTH, max_sequence_size=SEQUENCE_SIZE, save_path=rnn_path, seed=7)
+            fit_rnn(train_data, val_data, optimizer=optimizer, loss=loss, encoder_units=[500, 1000],
+                    token_length=TOKEN_LENGTH, max_sequence_size=SEQUENCE_SIZE, save_path=rnn_path, seed=42)
         else:
             print("TODO...")
     else:

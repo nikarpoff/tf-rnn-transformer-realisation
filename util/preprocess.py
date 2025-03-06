@@ -33,7 +33,7 @@ def preprocess_text(text):
 def sentence_to_embedding(sentence, model, sentence_length, token_length):
     """
     Creates embedding with constant length from sentence.
-    
+
     Returns matrix with shape (sentence_length, token_length).
     """
     tokens = preprocess_text(sentence)

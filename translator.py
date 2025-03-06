@@ -12,13 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import re
-import numpy as np
+
 import tensorflow as tf
 
 from rnn.gru import DeepEncoderGRU
 from rnn.lstm import DecoderLSTM
-from gensim.utils import simple_preprocess
 
 
 @tf.keras.utils.register_keras_serializable()

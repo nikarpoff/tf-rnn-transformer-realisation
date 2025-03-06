@@ -93,12 +93,12 @@ class DecoderLSTM(tf.keras.layers.Layer):
         self.dense = tf.keras.Sequential([
             tf.keras.layers.Dense(
                 input_length,
-                activation='relu',
+                activation='tanh',
                 kernel_initializer=tf.keras.initializers.GlorotUniform(seed=seed),
                 use_bias=use_bias
         ), tf.keras.layers.Dense(
                 output_token_length,
-                activation='tanh',
+                activation='linear',
                 kernel_initializer=tf.keras.initializers.GlorotUniform(seed=seed),
                 use_bias=use_bias
         )])
@@ -107,9 +107,9 @@ class DecoderLSTM(tf.keras.layers.Layer):
         # The one step of LSTM computation.
         def loop_body(step, h, c, outputs):
             y = self.dense(h)  # prediction of word (embedding) by dense layer
-            h_next, c_next = self.cell(y, h, c)  # compute new h and c based on y and previous h, c
+            h_next, _ = self.cell(y, h, c)  # compute new h and c based on y and previous h, c
             outputs = outputs.write(step, y)  # remember predicted word
-            return step + 1, h_next, c_next, outputs
+            return step + 1, h_next, c_0, outputs
 
         # Outputs from LSTM (y predicted).
         outputs = tf.TensorArray(tf.float32, size=0, dynamic_size=True)

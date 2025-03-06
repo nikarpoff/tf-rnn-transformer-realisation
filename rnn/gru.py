@@ -70,7 +70,7 @@ class CellGRU(tf.keras.layers.Layer):
         }
 
 
-class GRU(tf.keras.layers.Layer):
+class EncoderGRU(tf.keras.layers.Layer):
     def __init__(self, units: int, token_length: int, use_bias: bool, return_sequences: bool, seed: int, name=None):
         super().__init__(name=name)
         self.units = units
@@ -84,18 +84,19 @@ class GRU(tf.keras.layers.Layer):
         batch_size = tf.shape(x)[0]
         time_steps = tf.shape(x)[1]
 
-        # The one step of LSTM computation.
+        # The one step of GRU computation.
         def loop_body(step, h, hidden_states):
             x_t = x[:, step, :]
             h_next = self.cell(x_t, h)  # compute new h
-            hidden_states = hidden_states.write(step, h_next)  # remember h
-            return step + 1, h, hidden_states
-        
-        # Initialize h_0.
-        h = tf.zeros((batch_size, self.units), dtype=tf.float32)
-        hidden_states = tf.TensorArray(tf.float32, size=time_steps)  # list of (batch_size, units) outputs with sequence_length size
-        
-        # Every element of sequence is x on one step.
+            h_next.set_shape([None, self.units])  # h shape is constant
+            hidden_states = hidden_states.write(step, h_next)  # store h at current step
+            return step + 1, h_next, hidden_states
+
+        # Initialize h_0 and array for all of h.
+        h = tf.zeros(shape=(batch_size, self.units), dtype=tf.float32)
+        hidden_states = tf.TensorArray(dtype=tf.float32, size=time_steps)
+
+        # Run loop with shape invariants
         _, h, hidden_states = tf.while_loop(
             cond=lambda step, *_: step < time_steps,
             body=loop_body,
@@ -103,9 +104,8 @@ class GRU(tf.keras.layers.Layer):
         )
 
         if self.return_sequences:
-            # Transform list to tensor (stacked by batches).
-            return tf.transpose(hidden_states.stack(), [1, 0, 2])  # (batch_size, seq_len, hidden_dim)
-
+            # Stack hidden states to (seq_len, batch_size, units) and transpose
+            return tf.transpose(hidden_states.stack(), [1, 0, 2])
         return h
 
     def __str__(self):
@@ -141,7 +141,7 @@ class DeepEncoderGRU(tf.keras.layers.Layer):
         
         # First layer has input shape (batch_size, seq_len, token_length).
         self.deep_model = [
-            GRU(
+            EncoderGRU(
                 units=units_list[0],
                 token_length=token_length,
                 use_bias=use_bias,
@@ -152,7 +152,7 @@ class DeepEncoderGRU(tf.keras.layers.Layer):
 
         # Another user specified layers have input shape (batch_size, seq_len, units_prev_layer).
         for i in range(1, len(units_list) - 1):
-            self.deep_model.append(GRU(
+            self.deep_model.append(EncoderGRU(
                 units=units_list[i],
                 token_length=units_list[i - 1],
                 use_bias=use_bias,
@@ -161,7 +161,7 @@ class DeepEncoderGRU(tf.keras.layers.Layer):
             ))
 
         # Last layer can not return sequences.
-        self.deep_model.append(GRU(
+        self.deep_model.append(EncoderGRU(
             units=units_list[-1],
             token_length=units_list[-2],
             use_bias=use_bias,

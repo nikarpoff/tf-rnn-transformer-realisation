@@ -16,7 +16,7 @@ import tensorflow as tf
 
 from translator import TranslatorRNN
 from rnn.lstm import DecoderLSTM, CellLSTM
-from rnn.gru import DeepEncoderGRU, GRU, CellGRU
+from rnn.gru import DeepEncoderGRU, EncoderGRU, CellGRU
 from util.preprocess import TextPreprocessing
 
 
@@ -24,7 +24,7 @@ def translate_with_rnn(string: str, preprocessing: TextPreprocessing, model_path
     try:
         loaded_model = tf.keras.models.load_model(model_path, custom_objects={"TranslatorRNN": TranslatorRNN,
                                                                               "DeepEncoderGRU": DeepEncoderGRU,
-                                                                              "GRU": GRU,
+                                                                              "GRU": EncoderGRU,
                                                                               "CellGRU": CellGRU,
                                                                               "DecoderLSTM": DecoderLSTM,
                                                                               "CellLSTM": CellLSTM})
