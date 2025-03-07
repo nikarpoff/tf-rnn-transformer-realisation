@@ -69,7 +69,10 @@ class TextPreprocessing:
                     sentence_to_embedding(en, self.en_model, self.sentence_length, self.token_length))
     
         def tf_wrap(ru, en):
-            return tf.numpy_function(wrap_func, [ru, en], [tf.float32, tf.float32])
+            result_ru, result_en = tf.numpy_function(wrap_func, [ru, en], [tf.float32, tf.float32])
+            result_ru.set_shape((self.sentence_length, self.token_length))
+            result_en.set_shape((self.sentence_length, self.token_length))
+            return result_ru, result_en
     
         return (dataset.map(tf_wrap, num_parallel_calls=tf.data.AUTOTUNE)
             .batch(self.batch_size, drop_remainder=True)

@@ -34,7 +34,11 @@ class TranslatorRNN(tf.keras.Model):
         self.seed = seed
 
         # Initialize encoder. It returns ht that can be used for decoder.
-        self.encoder = DeepEncoderGRU(encoder_units, token_length, use_bias, seed)
+        self.encoder = DeepEncoderGRU(encoder_units,
+                                      token_length=token_length,
+                                      use_bias=use_bias,
+                                      return_sequences=False,
+                                      seed=seed)
 
         # Initialize dense layer to predict s0 from encoder ht output.
         self.s0_dense = tf.keras.layers.Dense(
