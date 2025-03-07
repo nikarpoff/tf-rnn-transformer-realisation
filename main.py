@@ -19,7 +19,7 @@ import tensorflow as tf
 import util.util
 import rnn.demo
 from util.preprocess import TextPreprocessing
-from translator import TranslatorRNN
+from translator import TranslatorRNN, TranslatorAttentionRNN
 
 
 MODELS_PATH = "models"
@@ -32,6 +32,10 @@ RNN_MODELS_PATH = os.path.join(MODELS_PATH, "rnn_translators")
 RNN_RU_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "rnn-ru-to-en-translator")
 RNN_EN_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "rnn-en-to-ru-translator")
 
+ATTENTION_MODELS_PATH = os.path.join(MODELS_PATH, "rnn_attention")
+ATTENTION_RU_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "attention-ru-to-en-translator")
+ATTENTION_EN_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "attention-en-to-ru-translator")
+
 TRANSFORMER_MODELS_PATH = os.path.join(MODELS_PATH, "transformer_translators")
 TRANSFORMER_RU_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "transformer-ru-to-en-translator")
 TRANSFORMER_EN_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "transformer-en-to-ru-translator")
@@ -42,6 +46,8 @@ LEARNING_RATE = 0.001
 BATCH_SIZE = 64
 EPOCHS = 20
 
+SEED = 1337
+
 
 def cli_arguments_preprocess():
     parser = argparse.ArgumentParser(description="Machine translation powered by ANN")
@@ -51,7 +57,7 @@ def cli_arguments_preprocess():
                       help="The operating mode: train/test/translate")
     
     parser.add_argument("--model", required=True,
-                      choices=["rnn", "transformer", "vectorization"],
+                      choices=["rnn", "attention", "transformer", "vectorization"],
                       help="Model: rnn/transformer. For train only embedding models you can use 'vectorization' with task==train")
 
     parser.add_argument("--lang", 
@@ -78,6 +84,7 @@ def create_file_structure():
     os.mkdir(MODELS_PATH)
     os.mkdir(VECTORIZATION_MODELS_PATH)
     os.mkdir(RNN_MODELS_PATH)
+    os.mkdir(ATTENTION_MODELS_PATH)
     os.mkdir(TRANSFORMER_MODELS_PATH)
 
 def load_dataset(silence=True):
@@ -127,6 +134,19 @@ def fit_rnn(train_data, val_data, optimizer, loss, encoder_units, token_length, 
     translator.save(save_path)
 
 
+def fit_rnn_attention(train_data, val_data, optimizer, loss, encoder_units, token_length, max_sequence_size, save_path, seed):
+    # Initialize model.
+    translator = TranslatorAttentionRNN(encoder_units=encoder_units, token_length=token_length, max_sequence_size=max_sequence_size, seed=seed)
+    translator.build(input_shape=(BATCH_SIZE, max_sequence_size, token_length))
+    translator.summary()
+
+    # Fit model.
+    translator.compile(optimizer=optimizer, loss=loss)
+    translator.fit(train_data, batch_size=BATCH_SIZE, epochs=EPOCHS, validation_data=val_data)
+
+    translator.save(save_path)
+
+
 def main():
     task, model, lang, text = cli_arguments_preprocess()
 
@@ -157,14 +177,20 @@ def main():
     # Remember paths to models.
     if lang == "ru":
         rnn_path = RNN_RU_MODEL_PATH
+        attention_rnn_path = ATTENTION_RU_MODEL_PATH
+        transformer_path = TRANSFORMER_RU_MODEL_PATH
     if lang == "en":
         rnn_path = RNN_EN_MODEL_PATH
+        attention_rnn_path = ATTENTION_EN_MODEL_PATH
+        transformer_path = TRANSFORMER_EN_MODEL_PATH
 
     # Task translate -> dataset not required, model can be loaded
     if task == "translate":
         if model == "rnn":
             rnn.demo.translate_with_rnn(text, preprocessing, rnn_path, lang)
-        if model == "transformer":
+        elif model == "attention":
+            rnn.demo.translate_with_attention_rnn(text, preprocessing, attention_rnn_path, lang)
+        elif model == "transformer":
             print("TODO...")
         
         return
@@ -193,9 +219,14 @@ def main():
 
     # There we have "train" task
     if task == "train":
+        encoder_units = [20, 50]
+
         if model == "rnn":
-            fit_rnn(train_data, val_data, optimizer=optimizer, loss=loss, encoder_units=[500, 1000],
-                    token_length=TOKEN_LENGTH, max_sequence_size=SEQUENCE_SIZE, save_path=rnn_path, seed=42)
+            fit_rnn(train_data, val_data, optimizer=optimizer, loss=loss, encoder_units=encoder_units,
+                    token_length=TOKEN_LENGTH, max_sequence_size=SEQUENCE_SIZE, save_path=rnn_path, seed=SEED)
+        elif model == "attention":
+            fit_rnn_attention(train_data, val_data, optimizer=optimizer, loss=loss, encoder_units=encoder_units,
+                    token_length=TOKEN_LENGTH, max_sequence_size=SEQUENCE_SIZE, save_path=attention_rnn_path, seed=SEED)
         else:
             print("TODO...")
     else:

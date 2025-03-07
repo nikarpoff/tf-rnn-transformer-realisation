@@ -16,22 +16,41 @@
 import tensorflow as tf
 
 from rnn.gru import DeepEncoderGRU
-from rnn.lstm import DecoderLSTM
-
+from rnn.lstm import DecoderLSTM, DecoderAttentionLSTM
 
 @tf.keras.utils.register_keras_serializable()
-class TranslatorRNN(tf.keras.Model):
+class Translator(tf.keras.Model):
+    """
+    Translation model.
+    """
+    def __init__(self, token_length: int, max_sequence_size: int, seed=None, name=None):
+        super().__init__(name=name)
+        self.token_length = token_length
+        self.max_sequence_size = max_sequence_size
+        self.seed = seed
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
+
+    def get_config(self):
+        return {
+            "token_length": self.token_length,
+            "max_sequence_size": self.max_sequence_size,
+            "seed": self.seed,
+            "name": self.name
+        }
+
+
+class TranslatorRNN(Translator):
     """
     Translation model based on RNN
     """
     def __init__(self, encoder_units: list, token_length: int, max_sequence_size: int,
                 use_bias=True, seed=None, name=None):
-        super().__init__(name=name)
+        super().__init__(token_length, max_sequence_size, seed, name)
         self.encoder_units = encoder_units
-        self.token_length = token_length
-        self.max_sequence_size = max_sequence_size
         self.use_bias = use_bias
-        self.seed = seed
 
         # Initialize encoder. It returns ht that can be used for decoder.
         self.encoder = DeepEncoderGRU(encoder_units,
@@ -73,9 +92,56 @@ class TranslatorRNN(tf.keras.Model):
             "name": self.name
         }
 
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
     def __str__(self):
         return f"Simple Translator RNN\n\tEncoder: {self.encoder}\n\tDense: {self.s0_dense}\n\tDecoder: {self.decoder}"   
+
+
+class TranslatorAttentionRNN(Translator):
+    """
+    Translation model based on RNN with attention principle
+    """
+    def __init__(self, encoder_units: list, token_length: int, max_sequence_size: int,
+                use_bias=True, seed=None, name=None):
+        super().__init__(token_length, max_sequence_size, seed, name)
+        self.encoder_units = encoder_units
+        self.use_bias = use_bias
+
+        # Initialize encoder. It returns tensor h that can be used for decoder with attention.
+        self.encoder = DeepEncoderGRU(encoder_units,
+                                      token_length=token_length,
+                                      use_bias=use_bias,
+                                      return_sequences=True,
+                                      seed=seed)
+
+        # Initialize dense layer to predict s0 from encoder h[-1] output.
+        self.s0_dense = tf.keras.layers.Dense(
+            units=encoder_units[-1],
+            use_bias=use_bias,
+            name="s0_dense",
+        )
+        
+        # Initialize decoder based on LSTM. Decoder units number is encoder's last layer units number.
+        self.decoder = DecoderAttentionLSTM(input_length=encoder_units[-1],  # encoder output is decoder input.
+                                            output_token_length=token_length,  # use the same token length
+                                            max_sequence_size=max_sequence_size,
+                                            use_bias=use_bias,
+                                            seed=seed
+        )
+
+    def call(self, x):
+        h = self.encoder(x)        
+        s_0 = self.s0_dense(h[:, -1, :])
+        return self.decoder(h, s_0)
+
+    def get_config(self):
+        return {
+            "encoder_units": self.encoder_units,
+            "token_length": self.token_length,
+            "max_sequence_size": self.max_sequence_size,
+            "use_bias": self.use_bias,
+            "seed": self.seed,
+            "name": self.name
+        }
+
+    def __str__(self):
+        return f"Translator RNN with attention\n\tEncoder: {self.encoder}\n\tDense: {self.s0_dense}\n\tDecoder: {self.decoder}"   

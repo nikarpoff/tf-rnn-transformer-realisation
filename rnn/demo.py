@@ -14,13 +14,12 @@
 
 import tensorflow as tf
 
-from translator import TranslatorRNN
-from rnn.lstm import DecoderLSTM, CellLSTM
+from translator import TranslatorRNN, TranslatorAttentionRNN
+from rnn.lstm import DecoderLSTM, CellLSTM, DecoderAttentionLSTM
 from rnn.gru import DeepEncoderGRU, EncoderGRU, CellGRU
 from util.preprocess import TextPreprocessing
 
-
-def translate_with_rnn(string: str, preprocessing: TextPreprocessing, model_path, source_lang: str):
+def load_rnn(model_path):
     try:
         loaded_model = tf.keras.models.load_model(model_path, custom_objects={"TranslatorRNN": TranslatorRNN,
                                                                               "DeepEncoderGRU": DeepEncoderGRU,
@@ -28,9 +27,28 @@ def translate_with_rnn(string: str, preprocessing: TextPreprocessing, model_path
                                                                               "CellGRU": CellGRU,
                                                                               "DecoderLSTM": DecoderLSTM,
                                                                               "CellLSTM": CellLSTM})
+    
+        return loaded_model
     except:
         raise Exception("There is no required model in local files! First, train rnn model!")
 
+
+def load_attention_rnn(model_path):
+    try:
+        loaded_model = tf.keras.models.load_model(model_path, custom_objects={"TranslatorRNN": TranslatorRNN,
+                                                                              "TranslatorAttentionRNN": TranslatorAttentionRNN,
+                                                                              "DeepEncoderGRU": DeepEncoderGRU,
+                                                                              "GRU": EncoderGRU,
+                                                                              "CellGRU": CellGRU,
+                                                                              "DecoderAttentionLSTM": DecoderAttentionLSTM,
+                                                                              "DecoderLSTM": DecoderLSTM,
+                                                                              "CellLSTM": CellLSTM})
+
+        return loaded_model
+    except:
+        raise Exception("There is no required model in local files! First, train rnn model!")
+
+def translate(string: str, loaded_model, preprocessing: TextPreprocessing, source_lang: str):
     example_string = tf.constant(string, dtype=tf.string)
 
     if (source_lang == "ru"):
@@ -48,3 +66,12 @@ def translate_with_rnn(string: str, preprocessing: TextPreprocessing, model_path
 
     print(f"Original: {decoded_example}\n")
     print(f"Translation by loaded model: {decoded_translation}")
+
+
+def translate_with_rnn(string: str, preprocessing: TextPreprocessing, model_path, source_lang: str):
+    loaded_model = load_rnn(model_path)
+    translate(string, loaded_model, preprocessing, source_lang)
+
+def translate_with_attention_rnn(string: str, preprocessing: TextPreprocessing, model_path, source_lang: str):
+    loaded_model = load_attention_rnn(model_path)
+    translate(string, loaded_model, preprocessing, source_lang)
