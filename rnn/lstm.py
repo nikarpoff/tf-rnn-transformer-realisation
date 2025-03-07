@@ -167,47 +167,56 @@ class DecoderAttentionLSTM(DecoderLSTM):
         self.a_softmax = tf.keras.layers.Softmax()
 
     def call(self, h: tf.Tensor, s_0: tf.Tensor):
+        max_seq = self.max_sequence_size
+
         # The one step of decoder with attention computation.
-        def loop_over_sequence(step, h, s, e, outputs):
+        def loop_over_sequence(step, h, s, outputs):
             y = self.y_dense(s)  # prediction of word (embedding) by dense layer
 
+            e_ta = tf.TensorArray(tf.float32, size=max_seq)
+
             # Over the h 3-d data count vector e (batch_size, sequence_size).
-            _, _, _, e = tf.while_loop(
-                cond=lambda i, *_: i < self.max_sequence_size,
-                body=loop_over_h,
-                loop_vars=(0, h, s, e)
+            _, e_ta = tf.while_loop(
+                cond=lambda i, *_: i < max_seq,
+                body=lambda i, ta: (i+1, ta.write(i, self.e_dense(tf.concat([h[:, i, :], s], axis=1)))),
+                loop_vars=(0, e_ta)
             )
 
-            # Find vector a throught softmax.
-            e_vector = tf.transpose(tf.squeeze(e.stack()))
-            a = self.a_softmax(e_vector)
+            e = e_ta.stack()  # Shape: (max_seq, batch_size, 1)
+            e = tf.squeeze(e, axis=-1)  # Shape: (max_seq, batch_size)
+            e = tf.transpose(e)  # Shape: (batch_size, max_seq)
+            e = tf.ensure_shape(e, [None, max_seq])
+
+            # Get vector 'a' throught softmax.
+            a = self.a_softmax(e)
 
             # Vector c is weighted sum of hidden states with attention weights a.
-            new_c = tf.reduce_sum(h * tf.expand_dims(a, -1), axis=1)  # sum along sequence
-
-            new_c.set_shape([None, self.cell.units])
+            new_c = tf.reduce_sum(h * tf.expand_dims(a, axis=-1), axis=1)  # sum along sequence
+            new_c = tf.ensure_shape(new_c, [None, self.cell.units])
 
             s_next, _ = self.cell(y, s, new_c)  # compute new s based on prev y and s, new c
-            
-            s_next.set_shape([None, self.cell.units])
+
+            s_next = tf.ensure_shape(s_next, ([None, self.cell.units]))
 
             outputs = outputs.write(step, y)  # remember predicted word
-            return step + 1, h, s_next, e, outputs
+            return step + 1, h, s_next, outputs
 
-        def loop_over_h(i, h, s, e):
-            # Compute alignment score for any h
-            h_s = tf.concat([h[:, i, :], s], axis=1)
-            e = e.write(i, self.e_dense(h_s))
-            return i + 1, h, s, e
-
-        outputs = tf.TensorArray(tf.float32, size=0, dynamic_size=True)  # LSTM outputs
-        e = tf.TensorArray(tf.float32, size=0, dynamic_size=True)  # attention alignments
+        outputs = tf.TensorArray(tf.float32,
+                                 size=max_seq,
+                                 element_shape=[None, self.output_token_length]
+        )  # LSTM outputs
 
         # The sequence of computations. Stop when max_sequence_size was reached.
-        _, _, _, _, outputs = tf.while_loop(
+        _, _, _, outputs = tf.while_loop(
             cond=lambda step, *_: step < self.max_sequence_size,
             body=loop_over_sequence,
-            loop_vars=(0, h, s_0, e, outputs)
+            loop_vars=(0, h, s_0, outputs),
+            shape_invariants=(
+                tf.TensorShape([]),
+                tf.TensorShape([None, None, self.cell.units]),
+                tf.TensorShape([None, self.cell.units]),
+                tf.TensorShape(None)
+            )
         )
 
         output_sequence = outputs.stack()
