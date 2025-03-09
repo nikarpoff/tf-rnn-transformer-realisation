@@ -16,6 +16,7 @@
 import tensorflow as tf
 
 
+@tf.keras.utils.register_keras_serializable()
 class CellGRU(tf.keras.layers.Layer):
     """
     :param units - units (number of neurons) that used to compute the hidden state.
@@ -70,6 +71,7 @@ class CellGRU(tf.keras.layers.Layer):
         }
 
 
+@tf.keras.utils.register_keras_serializable()
 class EncoderGRU(tf.keras.layers.Layer):
     def __init__(self, units: int, token_length: int, use_bias: bool, return_sequences: bool, seed: int, name=None):
         super().__init__(name=name)
@@ -88,7 +90,7 @@ class EncoderGRU(tf.keras.layers.Layer):
         def loop_body(step, h, hidden_states):
             x_t = x[:, step, :]
             h_next = self.cell(x_t, h)  # compute new h
-            h_next.set_shape([None, self.units])  # h shape is constant
+            h_next = tf.ensure_shape(h_next, [None, self.units])  # h shape is constant
             hidden_states = hidden_states.write(step, h_next)  # store h at current step
             return step + 1, h_next, hidden_states
 
@@ -126,6 +128,7 @@ class EncoderGRU(tf.keras.layers.Layer):
         }
 
 
+@tf.keras.utils.register_keras_serializable()
 class DeepEncoderGRU(tf.keras.layers.Layer):
     """
     Realisation of multilayered RNN based on GRU.
@@ -193,3 +196,130 @@ class DeepEncoderGRU(tf.keras.layers.Layer):
             "seed": self.seed,
             "name": self.name
         }
+
+
+@tf.keras.utils.register_keras_serializable()
+class DecoderAttentionGRU(tf.keras.layers.Layer):
+    """
+    Decoder based on LSTM with attention that used to predict translation from context and hidden states by encoder.
+    
+    Consumes tensor h instead of vector c_0. Used h to evaluate attention weights and form context vector c.
+    """
+    def __init__(self, hidden_length: int, output_token_length: int, max_sequence_size: int, use_bias: bool, seed: int, name=None):
+        super().__init__(name=name)
+        self.hidden_length = hidden_length
+        self.output_token_length = output_token_length
+        self.max_sequence_size = max_sequence_size
+
+        # Cause we will concatenate vectors y and c we should to initialize token length as sum of len y and len c.
+        self.cell = CellGRU(units=hidden_length,
+                            token_length=output_token_length + hidden_length,
+                            use_bias=use_bias,
+                            seed=seed
+        )
+
+        # Dense for y prediction.
+        self.y_dense = tf.keras.Sequential([
+            tf.keras.layers.Dense(
+                hidden_length,
+                activation='tanh',
+                kernel_initializer=tf.keras.initializers.GlorotUniform(seed=seed),
+                use_bias=use_bias
+        ), tf.keras.layers.Dense(
+                hidden_length,
+                activation='tanh',
+                kernel_initializer=tf.keras.initializers.GlorotUniform(seed=seed),
+                use_bias=use_bias
+        ), tf.keras.layers.Dense(
+                output_token_length,
+                activation='linear',
+                kernel_initializer=tf.keras.initializers.GlorotUniform(seed=seed),
+                use_bias=use_bias
+        )])
+
+        # MLP for prediction e - the necessarity of every hidden state from encoder between 0 and 1.
+        self.e_dense = tf.keras.Sequential([
+            tf.keras.layers.Dense(
+                hidden_length,
+                activation='tanh',
+                kernel_initializer=tf.keras.initializers.GlorotUniform(seed=seed),
+                use_bias=use_bias
+        ), tf.keras.layers.Dense(
+                1,
+                activation='linear',
+                kernel_initializer=tf.keras.initializers.GlorotUniform(seed=seed),
+                use_bias=use_bias
+        )])
+
+        # Softmax to convert alignment scores into probabilities - weights of every hidden state.
+        self.a_softmax = tf.keras.layers.Softmax()
+
+    def call(self, h: tf.Tensor, s_0: tf.Tensor):
+        max_seq = self.max_sequence_size
+        h_len = self.hidden_length
+
+        # The one step of decoder with attention computation.
+        def loop_over_sequence(step, h, s, outputs):
+            y = self.y_dense(s)  # prediction of word (embedding) by dense layer
+
+            e_ta = tf.TensorArray(tf.float32, size=max_seq)
+
+            # Over the h 3-d data count vector e (batch_size, sequence_size).
+            _, e_ta = tf.while_loop(
+                cond=lambda i, *_: i < max_seq,
+                body=lambda i, ta: (i+1, ta.write(i, self.e_dense(tf.concat([h[:, i, :], s], axis=1)))),
+                loop_vars=(0, e_ta)
+            )
+
+            e = tf.transpose(tf.squeeze(e_ta.stack(), axis=-1))
+            e = tf.ensure_shape(e, [None, max_seq])
+
+            # Get vector 'a' throught softmax.
+            a = self.a_softmax(e)
+
+            # Vector c is weighted sum of hidden states with attention weights a.
+            attention_c = tf.reduce_sum(h * tf.expand_dims(a, axis=-1), axis=1)  # sum along sequence
+            attention_c = tf.ensure_shape(attention_c, [None, h_len])
+
+            combined_input = tf.concat([y, attention_c], axis=-1)
+            s_next = self.cell(combined_input, s)  # compute new s based on prev y and s, new c
+
+            s_next = tf.ensure_shape(s_next, ([None, h_len]))
+
+            outputs = outputs.write(step, y)  # remember predicted word
+            return step + 1, h, s_next, outputs
+
+        outputs = tf.TensorArray(tf.float32,
+                                 size=max_seq,
+                                 element_shape=[None, self.output_token_length]
+        )  # LSTM outputs
+
+        # The sequence of computations. Stop when max_sequence_size was reached.
+        _, _, _, outputs = tf.while_loop(
+            cond=lambda step, *_: step < self.max_sequence_size,
+            body=loop_over_sequence,
+            loop_vars=(0, h, s_0, outputs),
+            shape_invariants=(
+                tf.TensorShape([]),
+                tf.TensorShape([None, None, self.cell.units]),
+                tf.TensorShape([None, self.cell.units]),
+                tf.TensorShape(None)
+            )
+        )
+
+        output_sequence = outputs.stack()
+        output_sequence = tf.transpose(output_sequence, [1, 0, 2])
+        return output_sequence
+
+    def get_config(self):
+        return {
+            "hidden_length": self.hidden_length,
+            "output_token_length": self.output_token_length,
+            "max_sequence_size": self.max_sequence_size,
+            "use_bias": self.cell.use_bias,
+            "seed": self.cell.seed,
+            "name": self.name
+        }
+
+    def __str__(self):
+        return f"Decoder based on LSTM with attention. Output shape: (None, {self.max_sequence_size}, {self.output_token_length})\n"

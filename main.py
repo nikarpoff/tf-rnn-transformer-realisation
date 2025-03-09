@@ -32,21 +32,20 @@ RNN_MODELS_PATH = os.path.join(MODELS_PATH, "rnn_translators")
 RNN_RU_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "rnn-ru-to-en-translator")
 RNN_EN_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "rnn-en-to-ru-translator")
 
-ATTENTION_MODELS_PATH = os.path.join(MODELS_PATH, "rnn_attention")
 ATTENTION_RU_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "attention-ru-to-en-translator")
 ATTENTION_EN_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "attention-en-to-ru-translator")
 
 TRANSFORMER_MODELS_PATH = os.path.join(MODELS_PATH, "transformer_translators")
-TRANSFORMER_RU_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "transformer-ru-to-en-translator")
-TRANSFORMER_EN_MODEL_PATH = os.path.join(RNN_MODELS_PATH, "transformer-en-to-ru-translator")
+TRANSFORMER_RU_MODEL_PATH = os.path.join(TRANSFORMER_MODELS_PATH, "transformer-ru-to-en-translator")
+TRANSFORMER_EN_MODEL_PATH = os.path.join(TRANSFORMER_MODELS_PATH, "transformer-en-to-ru-translator")
 
 TOKEN_LENGTH = 100
 SEQUENCE_SIZE = 10
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.0001
 BATCH_SIZE = 64
-EPOCHS = 20
+EPOCHS = 5
 
-SEED = 1337
+SEED = 7
 
 
 def cli_arguments_preprocess():
@@ -81,11 +80,17 @@ def cli_arguments_preprocess():
     return args.task, args.model, args.lang, args.text
 
 def create_file_structure():
-    os.mkdir(MODELS_PATH)
-    os.mkdir(VECTORIZATION_MODELS_PATH)
-    os.mkdir(RNN_MODELS_PATH)
-    os.mkdir(ATTENTION_MODELS_PATH)
-    os.mkdir(TRANSFORMER_MODELS_PATH)
+    if not os.path.isdir(MODELS_PATH):
+        os.mkdir(MODELS_PATH)
+        
+    if not os.path.isdir(VECTORIZATION_MODELS_PATH):
+        os.mkdir(VECTORIZATION_MODELS_PATH)
+
+    if not os.path.isdir(RNN_MODELS_PATH):
+        os.mkdir(RNN_MODELS_PATH)
+
+    if not os.path.isdir(TRANSFORMER_MODELS_PATH):
+        os.mkdir(TRANSFORMER_MODELS_PATH)
 
 def load_dataset(silence=True):
     # Loading dataset ted_hrlr_translate/ru_to_en.
@@ -219,7 +224,7 @@ def main():
 
     # There we have "train" task
     if task == "train":
-        encoder_units = [20, 50]
+        encoder_units = [300, 200]
 
         if model == "rnn":
             fit_rnn(train_data, val_data, optimizer=optimizer, loss=loss, encoder_units=encoder_units,

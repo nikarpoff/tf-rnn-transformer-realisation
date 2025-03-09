@@ -107,9 +107,9 @@ class DecoderLSTM(tf.keras.layers.Layer):
         # The one step of LSTM computation.
         def loop_body(step, h, c, outputs):
             y = self.y_dense(h)  # prediction of word (embedding) by dense layer
-            h_next, _ = self.cell(y, h, c)  # compute new h and c based on y and previous h, c
+            h_next, c_next = self.cell(y, h, c)  # compute new h and c based on y and previous h, c
             outputs = outputs.write(step, y)  # remember predicted word
-            return step + 1, h_next, c_0, outputs
+            return step + 1, h_next, c_next, outputs
 
         # Outputs from LSTM (y predicted).
         outputs = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
@@ -139,89 +139,3 @@ class DecoderLSTM(tf.keras.layers.Layer):
         return f"Decoder based on LSTM. Output shape: (None, {self.max_sequence_size}, {self.output_token_length})\n"\
                f"\tDense for y prediction: {self.y_dense}"
     
-
-class DecoderAttentionLSTM(DecoderLSTM):
-    """
-    Decoder based on LSTM with attention that used to predict translation from context and hidden states by encoder.
-    
-    Consumes tensor h instead of vector c_0. Used h to evaluate attention weights and form context vector c.
-    """
-    def __init__(self, input_length: int, output_token_length: int, max_sequence_size: int, use_bias: bool, seed: int, name=None):
-        super().__init__(input_length, output_token_length, max_sequence_size, use_bias, seed, name=name)
-        
-        # MLP for prediction e - the necessarity of every hidden state from encoder between 0 and 1.
-        self.e_dense = tf.keras.Sequential([
-            tf.keras.layers.Dense(
-                input_length,
-                activation='sigmoid',
-                kernel_initializer=tf.keras.initializers.GlorotUniform(seed=seed),
-                use_bias=use_bias
-        ), tf.keras.layers.Dense(
-                1,
-                activation='sigmoid',
-                kernel_initializer=tf.keras.initializers.GlorotUniform(seed=seed),
-                use_bias=use_bias
-        )])
-
-        # Softmax to convert alignment scores into probabilities - weights of every hidden state.
-        self.a_softmax = tf.keras.layers.Softmax()
-
-    def call(self, h: tf.Tensor, s_0: tf.Tensor):
-        max_seq = self.max_sequence_size
-
-        # The one step of decoder with attention computation.
-        def loop_over_sequence(step, h, s, outputs):
-            y = self.y_dense(s)  # prediction of word (embedding) by dense layer
-
-            e_ta = tf.TensorArray(tf.float32, size=max_seq)
-
-            # Over the h 3-d data count vector e (batch_size, sequence_size).
-            _, e_ta = tf.while_loop(
-                cond=lambda i, *_: i < max_seq,
-                body=lambda i, ta: (i+1, ta.write(i, self.e_dense(tf.concat([h[:, i, :], s], axis=1)))),
-                loop_vars=(0, e_ta)
-            )
-
-            e = e_ta.stack()  # Shape: (max_seq, batch_size, 1)
-            e = tf.squeeze(e, axis=-1)  # Shape: (max_seq, batch_size)
-            e = tf.transpose(e)  # Shape: (batch_size, max_seq)
-            e = tf.ensure_shape(e, [None, max_seq])
-
-            # Get vector 'a' throught softmax.
-            a = self.a_softmax(e)
-
-            # Vector c is weighted sum of hidden states with attention weights a.
-            new_c = tf.reduce_sum(h * tf.expand_dims(a, axis=-1), axis=1)  # sum along sequence
-            new_c = tf.ensure_shape(new_c, [None, self.cell.units])
-
-            s_next, _ = self.cell(y, s, new_c)  # compute new s based on prev y and s, new c
-
-            s_next = tf.ensure_shape(s_next, ([None, self.cell.units]))
-
-            outputs = outputs.write(step, y)  # remember predicted word
-            return step + 1, h, s_next, outputs
-
-        outputs = tf.TensorArray(tf.float32,
-                                 size=max_seq,
-                                 element_shape=[None, self.output_token_length]
-        )  # LSTM outputs
-
-        # The sequence of computations. Stop when max_sequence_size was reached.
-        _, _, _, outputs = tf.while_loop(
-            cond=lambda step, *_: step < self.max_sequence_size,
-            body=loop_over_sequence,
-            loop_vars=(0, h, s_0, outputs),
-            shape_invariants=(
-                tf.TensorShape([]),
-                tf.TensorShape([None, None, self.cell.units]),
-                tf.TensorShape([None, self.cell.units]),
-                tf.TensorShape(None)
-            )
-        )
-
-        output_sequence = outputs.stack()
-        output_sequence = tf.transpose(output_sequence, [1, 0, 2])
-        return output_sequence
-
-    def __str__(self):
-        return f"Decoder based on LSTM with attention. Output shape: (None, {self.max_sequence_size}, {self.output_token_length})\n"

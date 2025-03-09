@@ -15,8 +15,8 @@
 
 import tensorflow as tf
 
-from rnn.gru import DeepEncoderGRU
-from rnn.lstm import DecoderLSTM, DecoderAttentionLSTM
+from rnn.gru import DeepEncoderGRU, DecoderAttentionGRU
+from rnn.lstm import DecoderLSTM
 
 @tf.keras.utils.register_keras_serializable()
 class Translator(tf.keras.Model):
@@ -120,12 +120,12 @@ class TranslatorAttentionRNN(Translator):
             name="s0_dense",
         )
         
-        # Initialize decoder based on LSTM. Decoder units number is encoder's last layer units number.
-        self.decoder = DecoderAttentionLSTM(input_length=encoder_units[-1],  # encoder output is decoder input.
-                                            output_token_length=token_length,  # use the same token length
-                                            max_sequence_size=max_sequence_size,
-                                            use_bias=use_bias,
-                                            seed=seed
+        # Initialize decoder based on GRU. Decoder units number is encoder's last layer units number.
+        self.decoder = DecoderAttentionGRU(hidden_length=encoder_units[-1],  # encoder output is decoder input.
+                                           output_token_length=token_length,  # use the same token length
+                                           max_sequence_size=max_sequence_size,
+                                           use_bias=use_bias,
+                                           seed=seed
         )
 
     def call(self, x):

@@ -15,8 +15,8 @@
 import tensorflow as tf
 
 from translator import TranslatorRNN, TranslatorAttentionRNN
-from rnn.lstm import DecoderLSTM, CellLSTM, DecoderAttentionLSTM
-from rnn.gru import DeepEncoderGRU, EncoderGRU, CellGRU
+from rnn.lstm import DecoderLSTM, CellLSTM
+from rnn.gru import DeepEncoderGRU, EncoderGRU, CellGRU, DecoderAttentionGRU
 from util.preprocess import TextPreprocessing
 
 def load_rnn(model_path):
@@ -40,7 +40,7 @@ def load_attention_rnn(model_path):
                                                                               "DeepEncoderGRU": DeepEncoderGRU,
                                                                               "GRU": EncoderGRU,
                                                                               "CellGRU": CellGRU,
-                                                                              "DecoderAttentionLSTM": DecoderAttentionLSTM,
+                                                                              "DecoderAttentionLSTM": DecoderAttentionGRU,
                                                                               "DecoderLSTM": DecoderLSTM,
                                                                               "CellLSTM": CellLSTM})
 
