@@ -13,13 +13,15 @@
 # limitations under the License.
 
 import os
+import time
 import argparse
 import tensorflow as tf
 
 import util.util
 import rnn.demo
+import transformer.demo
 from util.preprocess import TextPreprocessing
-from translator import TranslatorRNN, TranslatorAttentionRNN
+from translator import TranslatorRNN, TranslatorAttentionRNN, TranslatorTransformer
 
 
 MODELS_PATH = "models"
@@ -126,10 +128,8 @@ def fit_vectorization_models(dataset, token_length):
     print("Vectorization models are ready!\n")
     return ru_vectorizer, en_vectorizer
 
-def fit_rnn(train_data, val_data, optimizer, loss, encoder_units, token_length, max_sequence_size, save_path, seed):
-    # Initialize model.
-    translator = TranslatorRNN(encoder_units=encoder_units, token_length=token_length, max_sequence_size=max_sequence_size, seed=seed)
-    translator.build(input_shape=(BATCH_SIZE, max_sequence_size, token_length))
+def fit_translator_rnn(translator, train_data, val_data, optimizer, loss, save_path):
+    translator.build(input_shape=(BATCH_SIZE, SEQUENCE_SIZE, TOKEN_LENGTH))
     translator.summary()
 
     # Fit model.
@@ -138,17 +138,61 @@ def fit_rnn(train_data, val_data, optimizer, loss, encoder_units, token_length, 
 
     translator.save(save_path)
 
+def fit_transformer(translator, train_data, val_data, optimizer, loss_object, save_path):
+    def loss_function(real, pred):
+        mask = tf.math.logical_not(tf.math.equal(real, 0))
+        loss_ = loss_object(real, pred)
 
-def fit_rnn_attention(train_data, val_data, optimizer, loss, encoder_units, token_length, max_sequence_size, save_path, seed):
-    # Initialize model.
-    translator = TranslatorAttentionRNN(encoder_units=encoder_units, token_length=token_length, max_sequence_size=max_sequence_size, seed=seed)
-    translator.build(input_shape=(BATCH_SIZE, max_sequence_size, token_length))
-    translator.summary()
+        mask = tf.cast(mask, dtype=loss_.dtype)
+        loss_ *= mask
 
-    # Fit model.
-    translator.compile(optimizer=optimizer, loss=loss)
-    translator.fit(train_data, batch_size=BATCH_SIZE, epochs=EPOCHS, validation_data=val_data)
+        return tf.reduce_sum(loss_)/tf.reduce_sum(mask)
 
+    train_loss = tf.keras.metrics.Mean(name='train_loss')
+    val_loss = tf.keras.metrics.Mean(name='val_loss')
+    translator.compile(optimizer=optimizer, loss=loss_object)
+
+    @tf.function
+    def train_step(input, target):
+        target_input = target[:, :-1]
+        target_real = target[:, 1:]
+
+        with tf.GradientTape() as tape:
+            predictions = translator(input, target_input)
+            loss = loss_function(target_real, predictions)
+
+        gradients = tape.gradient(loss, translator.trainable_variables)
+        optimizer.apply_gradients(zip(gradients, translator.trainable_variables))
+
+        train_loss(loss)
+
+    @tf.function
+    def validate_step(input, target):
+        predictions = translator.predict(input)
+        loss = loss_function(target, predictions)
+
+        val_loss(loss)
+
+    for epoch in range(EPOCHS):
+        start = time.time()
+
+        train_loss.reset_states()
+        val_loss.reset_states()
+
+        print(f"\nEpoch {epoch + 1}/{EPOCHS}")
+        
+        for (batch, (input, target)) in enumerate(train_data):
+            train_step(input, target)
+
+            if batch % 50 == 0:
+                print(f'\tBatch {batch} Loss {train_loss.result():.4f}')
+
+        for input, target in val_data:
+            validate_step(input, target)
+
+        print(f'Train Loss {train_loss.result():.4f}; Validation loss {val_loss.result():.4f}')
+        print(f'Time taken for 1 epoch: {time.time() - start:.2f} secs\n')
+    
     translator.save(save_path)
 
 
@@ -196,8 +240,10 @@ def main():
         elif model == "attention":
             rnn.demo.translate_with_attention_rnn(text, preprocessing, attention_rnn_path, lang)
         elif model == "transformer":
-            print("TODO...")
-        
+            transformer.demo.translate_with_transformer(text, preprocessing, transformer_path, lang)
+        else:
+            raise Exception(f"Unknown model: {model}")
+
         return
     
     # Preprocess dataset.
@@ -205,10 +251,12 @@ def main():
         train_data = preprocessing.preprocess_ru_to_en_dataset(train_dataset)
         val_data = preprocessing.preprocess_ru_to_en_dataset(val_dataset)
         test_data = preprocessing.preprocess_ru_to_en_dataset(test_dataset)
+        target_vectorizer = en_vectorizer
     if lang == "en":
         train_data = preprocessing.preprocess_en_to_ru_dataset(train_dataset)
         val_data = preprocessing.preprocess_en_to_ru_dataset(val_dataset)
         test_data = preprocessing.preprocess_en_to_ru_dataset(test_dataset)
+        target_vectorizer = ru_vectorizer
 
     # Specify optimizer and loss function.
     optimizer = tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE)
@@ -227,13 +275,27 @@ def main():
         encoder_units = [300, 200]
 
         if model == "rnn":
-            fit_rnn(train_data, val_data, optimizer=optimizer, loss=loss, encoder_units=encoder_units,
-                    token_length=TOKEN_LENGTH, max_sequence_size=SEQUENCE_SIZE, save_path=rnn_path, seed=SEED)
+            translator = TranslatorRNN(encoder_units=encoder_units, token_length=TOKEN_LENGTH, max_sequence_size=SEQUENCE_SIZE, seed=SEED)
+            fit_translator_rnn(translator, train_data, val_data, optimizer, loss, rnn_path)
+        
         elif model == "attention":
-            fit_rnn_attention(train_data, val_data, optimizer=optimizer, loss=loss, encoder_units=encoder_units,
-                    token_length=TOKEN_LENGTH, max_sequence_size=SEQUENCE_SIZE, save_path=attention_rnn_path, seed=SEED)
+            translator = TranslatorAttentionRNN(encoder_units=encoder_units, token_length=TOKEN_LENGTH, max_sequence_size=SEQUENCE_SIZE, seed=SEED)
+            fit_translator_rnn(translator, train_data, val_data, optimizer, loss, attention_rnn_path)
+
+        elif model=="transformer":
+            model_depth = 300
+            mlp_units = 512
+            heads_number = 96
+
+            sos_token = target_vectorizer.wv["sos"]
+            eos_token = target_vectorizer.wv["eos"]
+
+            translator = TranslatorTransformer(model_depth, mlp_units, TOKEN_LENGTH, SEQUENCE_SIZE, heads_number, sos_token, eos_token, seed=SEED)
+            fit_transformer(translator, train_data, val_data, optimizer, loss, transformer_path)
         else:
-            print("TODO...")
+            raise Exception(f"Unknown model: {model}")
+
+        
     else:
         raise Exception(f"Unknown task: {task}")
 

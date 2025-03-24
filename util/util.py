@@ -41,7 +41,14 @@ def get_vectorization_models(dataset, token_length, ru_model_save_path, en_model
     :returns: packed ru_model and en_model
     """
     def process_sentence(ru, en):
-        return preprocess_text(ru), preprocess_text(en)
+        ru = preprocess_text(ru)
+        ru.insert(0, "sos")
+        ru.append("eos")
+
+        en = preprocess_text(en)
+        en.insert(0, "sos")
+        en.append("eos")
+        return ru, en
 
     with ThreadPoolExecutor() as executor:
         results = list(executor.map(process_sentence, *zip(*dataset)))

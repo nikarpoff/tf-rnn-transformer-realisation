@@ -38,8 +38,8 @@ def sentence_to_embedding(sentence, model, sentence_length, token_length):
     """
     tokens = preprocess_text(sentence)
 
-    if not tokens:
-        return np.zeros(shape=(sentence_length, token_length), dtype=np.float32)
+    tokens.insert(0, "sos")
+    tokens.append("eos")
 
     # Use embeddings from model and transform result to required shape
     word_vectors = np.zeros((sentence_length, token_length), dtype=np.float32)
